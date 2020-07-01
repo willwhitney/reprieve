@@ -27,6 +27,9 @@ class LossDataEstimator:
         self.val_set = dataset_utils.DatasetSubset(
             self.dataset, start=self.max_train_size)
 
+        self.train_set = dataset_utils.DatasetCache(self.train_set)
+        self.val_set = dataset_utils.DatasetCache(self.val_set)
+
         self.results = pd.DataFrame(
             columns=["seed", "samples", "val_loss"])
 

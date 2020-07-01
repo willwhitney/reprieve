@@ -58,21 +58,19 @@ def evaluate(model, dataset):
 def algorithm(dataset, seed):
     torch.manual_seed(seed)
     rng = random.PRNGKey(seed)
-    # hidden_layers = 2
-    # hidden_dim = 512
-    # n_classes = 10
-    classifier = MLPClassifier.partial(hidden_layers=1, hidden_dim=128, n_classes=10)
+    classifier = MLPClassifier.partial(hidden_layers=1,
+                                       hidden_dim=128,
+                                       n_classes=10)
     _, initial_params = classifier.init_by_shape(rng, [(128, 784)])
     initial_model = nn.Model(classifier, initial_params)
     optimizer = optim.Adam(1e-3).create(initial_model)
-    # import ipdb; ipdb.set_trace()
     loader = DataLoader(dataset, batch_size=128, shuffle=True)
 
-    steps = 1e3
+    steps = 5e3
     step = 0
     while step < steps:
         for x, y in loader:
-            train_step(optimizer, (jnp.array(x), jnp.array(y)))
+            optimizer = train_step(optimizer, (jnp.array(x), jnp.array(y)))
             step += 1
             if step >= steps:
                 break
