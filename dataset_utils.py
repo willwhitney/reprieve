@@ -4,6 +4,9 @@ from torch.utils.data import Dataset
 import numpy as np
 
 
+# TODO: rename this file to dataset_wrappers
+
+
 class DatasetWrapper(Dataset):
     def __init__(self, dataset):
         super().__init__()
@@ -21,13 +24,13 @@ class DatasetCache(DatasetWrapper):
         super().__init__(dataset)
         self.cache = {}
 
+    @profile
     def __getitem__(self, index):
-        with torch.no_grad():
-            if index in self.cache:
-                return self.cache[index]
-            else:
-                self.cache[index] = self.dataset[index]
-                return self.cache[index]
+        if index in self.cache:
+            return self.cache[index]
+        else:
+            self.cache[index] = self.dataset[index]
+            return self.cache[index]
 
 
 class DatasetSubset(DatasetWrapper):
@@ -86,3 +89,12 @@ class DatasetShuffle(DatasetWrapper):
 
     def __getitem__(self, index):
         return self.dataset[self.mapping[index]]
+
+
+def sample_indices(rng, n, k):
+    import jax.random as jr
+    return jr.randint(rng, shape=(k,), maxval=n)
+
+
+def load_batch(dataset, indices):
+    raise NotImplementedError

@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 import torchvision
 
-import api
+import apiv1
 
 
 class MLPClassifier(nn.Module):
@@ -48,7 +48,6 @@ def train_step(optimizer, batch):
 
 def evaluate(model, dataset):
     loader = DataLoader(dataset, batch_size=128, shuffle=True)
-
     loss = 0
     for x, y in loader:
         loss += loss_fn(model, (jnp.array(x), jnp.array(y))) * x.shape[0]
@@ -84,5 +83,5 @@ if __name__ == '__main__':
         transform=torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.1307,), (0.3081,))]))
-    loss_data_estimator = api.LossDataEstimator(algorithm, dataset)
+    loss_data_estimator = apiv1.LossDataEstimator(algorithm, dataset)
     loss_data_estimator.compute_curve(n_points=2)

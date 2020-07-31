@@ -163,7 +163,8 @@ def make_model(seed, N):
     rng = jr.PRNGKey(args.first_seed + seed)
     in_shape = (-1, input_shape)
     out_shape, net_params = net_init(rng, in_shape)
-    net_opt_init, net_opt_update, net_get_params = optimizers.adam(step_size=1e-3)
+    net_opt_init, net_opt_update, net_get_params = optimizers.adam(
+        step_size=1e-3)
     rng = jr.split(rng)[0]
 
     def loss_data(net_params, x_batch, targets_batch):
@@ -175,10 +176,12 @@ def make_model(seed, N):
     n_batches = args.ntrain // args.batch_size
     def get_example(i):
         key = rng[0] + i
-        index = jr.randint(jr.PRNGKey(key), shape=(1,), minval=0, maxval=args.ntrain)
+        index = jr.randint(jr.PRNGKey(key), shape=(1,),
+                           minval=0, maxval=args.ntrain)
         index = index[0] % N
         x_i = lax.dynamic_index_in_dim(train_x, index, keepdims=False)
-        target_i = lax.dynamic_index_in_dim(train_targets, index, keepdims=False)
+        target_i = lax.dynamic_index_in_dim(train_targets, index,
+                                            keepdims=False)
         return x_i, target_i, index
     get_batch = jax.vmap(get_example)
 
@@ -196,20 +199,26 @@ def make_model(seed, N):
 
     def train_epoch(carry, _):
         update_count, epochs_since_improve, (_, last_loss), net_opt_state = carry
-        indices = jnp.arange(n_batches * args.batch_size).astype(jnp.int32).reshape((-1, args.batch_size))
+        indices = jnp.arange(n_batches * args.batch_size)
+        indices = indices.astype(jnp.int32).reshape((-1, args.batch_size))
 
         if args.debug and False:
-            state, (losses, accuracies) = debug_scan(full_step,
-                                                     (net_opt_state, update_count),
-                                                     indices)
+            state, (losses, accuracies) = debug_scan(
+                full_step,
+                (net_opt_state, update_count),
+                indices)
         else:
-            state, (losses, accuracies) = jax.lax.scan(full_step,
-                                                       (net_opt_state, update_count),
-                                                       indices)
+            state, (losses, accuracies) = jax.lax.scan(
+                full_step,
+                (net_opt_state, update_count),
+                indices)
         (net_opt_state, update_count) = state
         net_params = net_get_params(net_opt_state)
-        test_loss, test_accuracy = eval_only((test_x, test_y), jax.tree_util.Partial(net_apply, net_params))
-        print(f'Loss: {losses.mean()} \tTest loss: {test_loss} \tTest accuracy: {test_accuracy}')
+        test_loss, test_accuracy = eval_only((test_x, test_y),
+                                             jax.tree_util.Partial(
+                                                 net_apply, net_params))
+        print((f'Loss: {losses.mean()} \tTest loss: {test_loss} \t'
+               f'Test accuracy: {test_accuracy}'))
 
         current_loss = jnp.mean(losses)
 
@@ -224,9 +233,11 @@ def make_model(seed, N):
 
     carry = (0, 0., (1e10, 1e10), net_opt_state)
     if args.debug:
-        carry, losses = debug_scan(train_epoch, carry, jnp.linspace(0, 99, args.epochs))
+        carry, losses = debug_scan(train_epoch, carry,
+                                   jnp.linspace(0, 99, args.epochs))
     else:
-        carry, losses = jax.lax.scan(train_epoch, carry, jnp.linspace(0, 99, args.epochs))
+        carry, losses = jax.lax.scan(train_epoch, carry,
+                                     jnp.linspace(0, 99, args.epochs))
 
     step_count, _, (_, last_loss), net_opt_state = carry
 
@@ -252,8 +263,9 @@ def full_experiment(train_sizes, seeds):
     print("Evaluated models.")
     results = np.stack([seeds, train_sizes, train_losses, train_accuracies,
                         test_losses, test_accuracies]).transpose()
-    df = pd.DataFrame(results, columns=["seed", "samples", "train_loss", "train_accuracy",
-                                        "test_loss", "test_accuracy"])
+    df = pd.DataFrame(results, columns=["seed", "samples", "train_loss",
+                                        "train_accuracy", "test_loss",
+                                        "test_accuracy"])
     return df
 
 
@@ -277,7 +289,9 @@ if __name__ == '__main__':
     for k, v in vars(args).items():
         results[k] = v
     name_pad = '_' if len(args.name) > 0 else ''
-    filename = f'results/realprobe_{args.name}{name_pad}{args.data}-repr_{args.repr}_dim{args.repr_dim}_level{args.repr_level}-seed{args.first_seed}.pkl'
+    filename = (f'results/realprobe_{args.name}{name_pad}{args.data}-'
+                f'repr_{args.repr}_dim{args.repr_dim}_level{args.repr_level}-'
+                f'seed{args.first_seed}.pkl')
     print(f"Writing results to {filename}")
     results.to_pickle(filename)
 
