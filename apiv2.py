@@ -66,7 +66,7 @@ class LossDataEstimator:
         self.results = pd.DataFrame(
             columns=["seed", "samples", "val_loss"])
 
-    # @profile
+    @profile
     def compute_curve(self, n_points=10, sampling_type='log', points=None):
         """Computes the loss-data curve for the given algorithm and dataset.
         Arguments:
@@ -93,8 +93,8 @@ class LossDataEstimator:
                                   f"'log' or 'linear', was {sampling_type}."))
 
         if self.use_vmap:
-            return self._compute_curve_vmap(points)
-            # return self._compute_curve_full_vmap(points)
+            # return self._compute_curve_vmap(points)
+            return self._compute_curve_full_vmap(points)
         else:
             return self._compute_curve_sequential(points)
 
@@ -136,7 +136,7 @@ class LossDataEstimator:
                 }, ignore_index=True)
                 print(self.results)
 
-    @profile
+    # @profile
     def _compute_curve_vmap(self, points):
         for point in points:
             shuffled_data = dataset_utils.DatasetShuffle(self.train_set)
@@ -157,17 +157,20 @@ class LossDataEstimator:
     def _compute_curve_full_vmap(self, points):
         seeds = list(range(self.n_seeds))
         jobs = [(point, seed) for point in points for seed in seeds]
+        product_points = [j[0] for j in jobs]
         product_seeds = [j[1] for j in jobs]
 
-        loaders = []
-        for job in jobs:
-            shuffled_dataset = dataset_utils.DatasetShuffle(self.train_set)
-            subset_dataset = dataset_utils.DatasetSubset(shuffled_dataset,
-                                                         stop=int(job[0]))
-            loader = self._make_loader(subset_dataset, job[1])
-            loaders.append(loader)
+        # loaders = []
+        # for job in jobs:
+        #     shuffled_dataset = dataset_utils.DatasetShuffle(self.train_set)
+        #     subset_dataset = dataset_utils.DatasetSubset(shuffled_dataset,
+        #                                                  stop=int(job[0]))
+        #     loader = self._make_loader(subset_dataset, job[1])
+        #     loaders.append(loader)
 
-        multi_iterator = utils.multi_loader_iterator(loaders)
+        # multi_iterator = utils.multi_loader_iterator(loaders)
+        multi_iterator = utils.jax_multi_iterator(
+            self.dataset, self.batch_size, product_seeds, product_points)
 
         # this is wrong, don't do it (only for profiling)
         # multi_iterator = utils.forever_iterator(loaders[0])
@@ -190,7 +193,7 @@ class LossDataEstimator:
 
         for step in range(self.train_steps):
             stacked_batch = next(multi_iterator)
-            stacked_batch = utils.batch_to_numpy(stacked_batch)
+            # stacked_batch = utils.batch_to_numpy(stacked_batch)
             states = vmap_train_step(states, stacked_batch)
         return states
 
@@ -227,12 +230,13 @@ class LossDataEstimator:
     #             indices = indices[:int(point)]
     #             data_subsets.append(indices)
 
-    #     # data_sampler = utils.MultiSubsetSampler(data_subsets, self.batch_size)
-    #     # loader_iter = iter(DataLoader(self.train_set, batch_sampler=data_sampler))
+    #     data_sampler = utils.MultiSubsetSampler(data_subsets, self.batch_size)
+    #     loader_iter = iter(DataLoader(self.train_set,
+    #                                   batch_sampler=data_sampler))
 
-    #     loader = utils.MultiSubsetLoader(
-    #         self.train_set, data_subsets, self.batch_size)
-    #     loader_iter = iter(loader)
+    #     # loader = utils.MultiSubsetLoader(
+    #     #     self.train_set, data_subsets, self.batch_size)
+    #     # loader_iter = iter(loader)
 
     #     for step in range(self.train_steps):
     #         stacked_batch = next(loader_iter)
@@ -269,7 +273,7 @@ class LossDataEstimator:
                     break
         return state
 
-    @profile
+    # @profile
     def _train_vmap(self, seeds, dataset):
         """Batches the train_step function across networks and trains models.
         To use this, train_step should be a pure JAX function.

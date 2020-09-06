@@ -65,7 +65,7 @@ def eval_fn(optimizer, batch):
     return loss_fn(optimizer.target, batch)
 
 
-if __name__ == '__main__':
+def main():
     dataset = torchvision.datasets.MNIST(
         '../data', train=True, download=True,
         transform=torchvision.transforms.Compose([
@@ -74,5 +74,18 @@ if __name__ == '__main__':
 
     loss_data_estimator = apiv2.LossDataEstimator(
         init_fn, train_step, eval_fn, dataset,
-        train_steps=1e3, use_vmap=True)
+        train_steps=1e3, use_vmap=False)
     loss_data_estimator.compute_curve(n_points=10)
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', action='store_true')
+    args = parser.parse_args()
+
+    if args.debug:
+        with jax.disable_jit():
+            main()
+    else:
+        main()

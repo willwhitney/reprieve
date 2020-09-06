@@ -24,7 +24,7 @@ class DatasetCache(DatasetWrapper):
         super().__init__(dataset)
         self.cache = {}
 
-    @profile
+    # @profile
     def __getitem__(self, index):
         if index in self.cache:
             return self.cache[index]
