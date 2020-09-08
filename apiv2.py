@@ -1,6 +1,4 @@
 import math
-import functools
-
 import numpy as np
 import pandas as pd
 import altair as alt
@@ -15,8 +13,9 @@ class LossDataEstimator:
     def __init__(self, init_fn, train_step_fn, eval_fn, dataset,
                  representation_fn=lambda x: x,
                  val_frac=0.1, n_seeds=5,
-                 train_steps=5e3, batch_size=128,
-                 cache_data=True, use_vmap=True):
+                 train_steps=5e3, batch_size=256,
+                 cache_data=True, whiten=True,
+                 use_vmap=True, verbose=False):
         """Create a LossDataEstimator.
         Arguments:
         - init_fn: (function int -> object)
@@ -34,7 +33,7 @@ class LossDataEstimator:
             a function which takes in a state as produced by init_fn or
             train_step_fn, plus a batch of data, and returns the _mean_ loss
             over points in that batch. should not mutate anything.
-        - dataset
+        - dataset: a PyTorch Dataset
         """
         self.init_fn = init_fn
         self.train_step_fn = train_step_fn
@@ -46,11 +45,36 @@ class LossDataEstimator:
         self.train_steps = int(train_steps)
         self.batch_size = batch_size
         self.use_vmap = use_vmap
+        self.verbose = verbose
+
+        if self.use_vmap and not cache_data:
+            raise ValueError(("Setting use_vmap requires cache_data. "
+                              "Either set cache_data=True or "
+                              "turn off use_vmap."))
 
         # TODO: check the type of the dataset and make this work for
         # PyTorch Dataset or tensors
 
-        # TODO: apply the representation function to each dataset and cache
+        if cache_data:
+            # do all the transformations now and cache the result
+            self.dataset = dataset_utils.DatasetTransformCache(
+                self.dataset, transform=self.representation_fn)
+            self.batch_transforms = []
+        else:
+            # transform the data later, after we load each batch
+            self.batch_transforms = [self.representation_fn]
+
+        if whiten:
+            mean, std = utils.compute_stats(self.dataset, self.batch_transforms,
+                                            self.batch_size)
+            whiten_transform = utils.make_whiten_transform(mean, std)
+            self.batch_transforms.append(whiten_transform)
+
+        # apply the transformation, then cache and whiten
+        # self.dataset = dataset_utils.DatasetTransform(
+        #     self.dataset, transform=self.representation_fn)
+        # if cache_data:
+        #     self.dataset = dataset_utils.DatasetCache(self.dataset)
 
         self.val_size = math.ceil(len(self.dataset) * self.val_frac)
         self.max_train_size = len(self.dataset) - self.val_size
@@ -59,14 +83,9 @@ class LossDataEstimator:
         self.val_set = dataset_utils.DatasetSubset(
             self.dataset, start=self.max_train_size)
 
-        if cache_data:
-            self.train_set = dataset_utils.DatasetCache(self.train_set)
-            self.val_set = dataset_utils.DatasetCache(self.val_set)
-
         self.results = pd.DataFrame(
             columns=["seed", "samples", "val_loss"])
 
-    @profile
     def compute_curve(self, n_points=10, sampling_type='log', points=None):
         """Computes the loss-data curve for the given algorithm and dataset.
         Arguments:
@@ -84,16 +103,15 @@ class LossDataEstimator:
         """
         if points is None:
             if sampling_type == 'log':
-                # TODO: change back to 1
-                points = np.logspace(3, np.log10(self.max_train_size), n_points)
+                points = np.logspace(1, np.log10(self.max_train_size), n_points)
             elif sampling_type == 'linear':
                 points = np.linspace(10, self.max_train_size, n_points)
             else:
                 raise ValueError((f"Argument sampling_type should be "
                                   f"'log' or 'linear', was {sampling_type}."))
+            points = np.ceil(points)
 
         if self.use_vmap:
-            # return self._compute_curve_vmap(points)
             return self._compute_curve_full_vmap(points)
         else:
             return self._compute_curve_sequential(points)
@@ -132,59 +150,33 @@ class LossDataEstimator:
                 self.results = self.results.append({
                     'seed': seed,
                     'samples': point,
-                    'val_loss': val_loss,
+                    'val_loss': float(val_loss,)
                 }, ignore_index=True)
-                print(self.results)
 
-    # @profile
-    def _compute_curve_vmap(self, points):
-        for point in points:
-            shuffled_data = dataset_utils.DatasetShuffle(self.train_set)
-            data_subset = dataset_utils.DatasetSubset(shuffled_data,
-                                                      stop=int(point))
-            seeds = list(range(self.n_seeds))
-            states = self._train_vmap(seeds, data_subset)
-            val_losses = self._eval_vmap(states, self.val_set)
-            for (seed, val_loss) in zip(seeds, val_losses):
-                self.results = self.results.append({
-                    'seed': seed,
-                    'samples': point,
-                    'val_loss': val_loss,
-                }, ignore_index=True)
-            print(self.results)
+                if self.verbose:
+                    print(self.results)
 
-    @profile
     def _compute_curve_full_vmap(self, points):
         seeds = list(range(self.n_seeds))
         jobs = [(point, seed) for point in points for seed in seeds]
         product_points = [j[0] for j in jobs]
         product_seeds = [j[1] for j in jobs]
 
-        # loaders = []
-        # for job in jobs:
-        #     shuffled_dataset = dataset_utils.DatasetShuffle(self.train_set)
-        #     subset_dataset = dataset_utils.DatasetSubset(shuffled_dataset,
-        #                                                  stop=int(job[0]))
-        #     loader = self._make_loader(subset_dataset, job[1])
-        #     loaders.append(loader)
-
-        # multi_iterator = utils.multi_loader_iterator(loaders)
         multi_iterator = utils.jax_multi_iterator(
-            self.dataset, self.batch_size, product_seeds, product_points)
+            self.train_set, self.batch_size, product_seeds, product_points)
 
-        # this is wrong, don't do it (only for profiling)
-        # multi_iterator = utils.forever_iterator(loaders[0])
         states = self._train_full_vmap(multi_iterator, product_seeds)
         val_losses = self._eval_vmap(states, self.val_set)
         for (job, val_loss) in zip(jobs, val_losses):
             self.results = self.results.append({
                 'seed': job[1],
                 'samples': job[0],
-                'val_loss': val_loss,
+                'val_loss': float(val_loss),
             }, ignore_index=True)
-        print(self.results)
 
-    @profile
+        if self.verbose:
+            print(self.results)
+
     def _train_full_vmap(self, multi_iterator, seeds):
         import jax
         import jax.numpy as jnp
@@ -193,68 +185,14 @@ class LossDataEstimator:
 
         for step in range(self.train_steps):
             stacked_batch = next(multi_iterator)
-            # stacked_batch = utils.batch_to_numpy(stacked_batch)
             states = vmap_train_step(states, stacked_batch)
         return states
-
-    # @profile
-    # def _compute_curve_full_vmap(self, points):
-    #     seeds = list(range(self.n_seeds))
-    #     jobs = [(point, seed) for point in points for seed in seeds]
-
-    #     states = self._train_full_vmap(points, seeds)
-    #     val_losses = self._eval_vmap(states, self.val_set)
-    #     for (job, val_loss) in zip(jobs, val_losses):
-    #         self.results = self.results.append({
-    #             'seed': job[1],
-    #             'samples': job[0],
-    #             'val_loss': val_loss,
-    #         }, ignore_index=True)
-    #     print(self.results)
-
-
-    # @profile
-    # def _train_full_vmap(self, points, seeds):
-    #     import jax
-    #     import jax.numpy as jnp
-    #     # n_jobs = len(points) * len(seeds)
-    #     product_seeds = [seed for point in points for seed in seeds]
-    #     vmap_train_step = jax.vmap(self.train_step_fn)
-    #     states = jax.vmap(self.init_fn)(jnp.array(product_seeds))
-
-    #     data_subsets = []
-    #     for point in points:
-    #         for seed in seeds:
-    #             indices = np.arange(len(self.train_set))
-    #             np.random.shuffle(indices)
-    #             indices = indices[:int(point)]
-    #             data_subsets.append(indices)
-
-    #     data_sampler = utils.MultiSubsetSampler(data_subsets, self.batch_size)
-    #     loader_iter = iter(DataLoader(self.train_set,
-    #                                   batch_sampler=data_sampler))
-
-    #     # loader = utils.MultiSubsetLoader(
-    #     #     self.train_set, data_subsets, self.batch_size)
-    #     # loader_iter = iter(loader)
-
-    #     for step in range(self.train_steps):
-    #         stacked_batch = next(loader_iter)
-    #         # stacked_x = flat_x.reshape((n_jobs, -1, *flat_x.shape[2:]))
-    #         # stacked_y = flat_y.reshape((n_jobs, -1, *flat_y.shape[2:]))
-    #         stacked_batch = utils.batch_to_numpy(stacked_batch)
-    #         states = vmap_train_step(states, stacked_batch)
-    #     return states
 
     def _make_loader(self, dataset, seed):
         def _worker_init_fn(worker_id):
             import torch
             torch.manual_seed(seed * worker_id)
-        return DataLoader(dataset,
-                          batch_size=self.batch_size, shuffle=True,
-                          worker_init_fn=_worker_init_fn,
-                          num_workers=0, drop_last=self.use_vmap)
-        # TODO: don't drop_last
+        return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
     def _train(self, seed, dataset):
         """Performs training with the algorithm associated with this LDE.
@@ -272,31 +210,6 @@ class LossDataEstimator:
                 if step >= self.train_steps:
                     break
         return state
-
-    # @profile
-    def _train_vmap(self, seeds, dataset):
-        """Batches the train_step function across networks and trains models.
-        To use this, train_step should be a pure JAX function.
-        """
-        import jax
-        import jax.numpy as jnp
-        # vmap_train_step = jax.vmap(self.train_step_fn)
-        vmap_train_step = jax.vmap(self.train_step_fn, in_axes=(0, None))
-        loader = self._make_loader(dataset, seeds[0])
-        # jobs = [(seed, point) for seed in seeds for point in points]
-        # states = [self.init_fn(seed) for (seed, point) in jobs]
-        states = jax.vmap(self.init_fn)(jnp.array(seeds))
-        # import ipdb; ipdb.set_trace()
-        step = 0
-        while step < self.train_steps:
-            for batch in loader:
-                # import ipdb; ipdb.set_trace()
-                batch = utils.batch_to_numpy(batch)
-                states = vmap_train_step(states, batch)
-                step += 1
-                if step >= self.train_steps:
-                    break
-        return states
 
     def _eval(self, state, dataset):
         """Evaluates the model specified by state on dataset.
@@ -354,12 +267,90 @@ class LossDataEstimator:
         return (lower_bound, upper_bound)
 
 
-
-def render_curve(dataframe, save_path=None):
+def render_curve(df, save_path=None):
     # TODO: render an Altair plot of the dataframe. by default:
     #   - in a Jupyter environment, we should return something Jupyter displays
     #   - in a script, we should require a save path
-    raise NotImplementedError
+    # def loss_data_chart(df, title='', xdomain=[8, 60000], ydomain=[0.008, 2], xrules=[], yrules=[],
+    #                     color_title='Representation', final=False):
+    title = 'Loss-data curve'
+    color_title = 'Representation'
+    xdomain = [8, 60000]
+    ydomain = [0.008, 2]
+    line_width = 5
+    label_size = 24
+    title_size = 30
+
+    # rules_df = pd.concat([
+    #     pd.DataFrame({'x': xrules}),
+    #     pd.DataFrame({'y': yrules})
+    # ], sort=False)
+
+    xscale = alt.Scale(type='log', domain=xdomain, nice=False)
+    yscale = alt.Scale(type='log', domain=ydomain, nice=False)
+
+    x_axis = alt.X('samples', scale=xscale, title='Dataset size')
+    y_axis = alt.Y('mean(val_loss)', scale=yscale, title='Validation loss')
+    # color_axis = alt.Color('label:N', title=color_title,
+    #                        scale=alt.Scale(scheme=colorscheme,),
+    #                        legend=None)
+
+    colorscheme = 'set1'
+    stroke_color = '333'
+    line = alt.Chart(df, title=title).mark_line(size=line_width, opacity=0.4)
+    line = line.encode(
+        x=x_axis, y=y_axis,
+        color=alt.Color('name:N', title=color_title,
+                        scale=alt.Scale(scheme=colorscheme,),
+                        legend=None),
+    )
+
+    point = alt.Chart(df, title=title).mark_point(size=80, opacity=1)
+    point = point.encode(
+        x=x_axis, y=y_axis,
+        color=alt.Color('name:N', title=color_title,
+                        scale=alt.Scale(scheme=colorscheme,)),
+        shape=alt.Shape('name:N', title=color_title),
+        tooltip=['samples', 'name']
+    )
+
+    # rule_x = alt.Chart(rules_df).mark_rule(
+    #     size=3, color='999', strokeDash=[
+    #         4, 4]).encode(
+    #     x='x')
+    # rule_y = alt.Chart(rules_df).mark_rule(
+    #     size=3, color='999', strokeDash=[
+    #         4, 4]).encode(
+    #     y='y')
+
+    # chart = alt.layer(rule_x, rule_y, line, point).resolve_scale(
+    #     color='independent',
+    #     shape='independent'
+    # )
+    chart = alt.layer(line, point).resolve_scale(
+        color='independent',
+        shape='independent'
+    )
+    chart = chart.properties(width=600, height=500, background='white')
+    chart = chart.configure_legend(labelLimit=0)
+    chart = chart.configure(
+        title=alt.TitleConfig(fontSize=title_size, fontWeight='normal'),
+        axis=alt.AxisConfig(titleFontSize=title_size,
+                            labelFontSize=label_size, grid=False,
+                            domainWidth=5, domainColor=stroke_color,
+                            tickWidth=3, tickSize=9, tickCount=4,
+                            tickColor=stroke_color, tickOffset=0),
+        legend=alt.LegendConfig(titleFontSize=title_size,
+                                labelFontSize=label_size,
+                                labelLimit=0, titleLimit=0,
+                                orient='top-right', padding=10,
+                                titlePadding=10, rowPadding=5,
+                                fillColor='white', strokeColor='black',
+                                cornerRadius=0),
+        view=alt.ViewConfig(strokeWidth=0, stroke=stroke_color)
+    )
+    chart.save(save_path)
+    return chart
 
 
 def render_table(dataframe):

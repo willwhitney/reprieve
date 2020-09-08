@@ -7,88 +7,10 @@ def batch_to_numpy(batch):
     return (batch[0].numpy(), batch[1].numpy())
 
 
-# @profile
-def multi_loader_iterator(loaders):
-    iterators = [iter(loader) for loader in loaders]
-
-    # TODO: figure out how to deal with small / differently-sized batches
-    while True:
-        xs, ys = [], []
-        for i in range(len(iterators)):
-            try:
-                x, y = next(iterators[i])
-            except StopIteration:
-                iterators[i] = iter(loaders[i])
-                x, y = next(iterators[i])
-            xs.append(x)
-            ys.append(y)
-        yield torch.stack(xs), torch.stack(ys)
-    # return _helper
-
-
-# @profile
-def forever_iterator(loader):
-    iterator = iter(loader)
-    while True:
-        try:
-            batch = next(iterator)
-        except StopIteration:
-            iterator = iter(loader)
-            batch = next(iterator)
-        yield batch
-
-
-class MultiSubsetLoader():
-    def __init__(self, dataset, subsets, batch_size=128):
-        self.dataset = dataset
-        self.subsets = subsets
-        self.batch_size = batch_size
-        self.sampler = MultiSubsetSampler(subsets, batch_size)
-        # self.sampler_iter = iter(self.sampler)
-
-    # @profile
-    def __iter__(self):
-        for index_batch in self.sampler:
-            xs = []
-            ys = []
-            for i in index_batch:
-                point = self.dataset[i]
-                xs.append(torch.as_tensor(point[0]))
-                ys.append(torch.as_tensor(point[1]))
-            flat_x = torch.stack(xs)
-            flat_y = torch.stack(ys)
-            stacked_x = flat_x.reshape(
-                (len(self.subsets), self.batch_size, *flat_x.shape[2:]))
-            stacked_y = flat_y.reshape(
-                (len(self.subsets), self.batch_size, *flat_y.shape[2:]))
-
-            yield (stacked_x, stacked_y)
-
-
-class MultiSubsetSampler(torch.utils.data.Sampler):
-    def __init__(self, subsets, batch_size=128):
-        self.subsets = subsets
-        self.batch_size = batch_size
-
-    # @profile
-    def __iter__(self):
-        while True:
-            all_indices = []
-            for subset in self.subsets:
-                indices = np.random.choice(subset, size=(self.batch_size,))
-                all_indices.append(indices)
-            yield [el for lst in all_indices for el in lst]
-
-    def __len__(self):
-        return int(1e10)
-
-
-@profile
 def dataset_to_jax(dataset):
     import jax
     from jax import numpy as jnp
 
-    @profile
     def stack_data(loader):
         xs, ys = [], []
         for x, y in loader:
@@ -146,6 +68,38 @@ def jax_multi_iterator(dataset, batch_size, seeds, subset_sizes):
     return loader_iter
 
 
+def apply_transforms(batch_transforms, x):
+    for t in batch_transforms:
+        x = t(x)
+    return x
+
+
+def compute_stats(dataset, batch_transforms, batch_size):
+    loader = torch.utils.data.DataLoader(dataset, batch_size)
+    n = len(dataset) * dataset[0][0].nelement()
+
+    data_sum, data_sum_of_squares = 0, 0
+    offset = None
+    for x, y in loader:
+        x = apply_transforms(batch_transforms, x)
+        x = x.reshape((x.shape[0], -1))
+        if offset is None:
+            offset = x.mean()
+
+        x_sum = x.sum()
+        data_sum += (x_sum - offset)
+        data_sum_of_squares += ((x - offset) ** 2).sum()
+    data_mean = offset + data_sum / n
+    data_variance = (data_sum_of_squares - data_sum ** 2 / n) / n
+    return data_mean, data_variance ** 0.5
+
+
+def make_whiten_transform(mean, std):
+    def _helper(x):
+        return (x - mean) / std
+    return _helper
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -159,27 +113,32 @@ if __name__ == "__main__":
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.1307,), (0.3081,))]))
 
-    # subsets = [[0, 1, 2],
-    #            [0, 0, 0],
-    #            [1]]
-    # batch_sampler = MultiSubsetSampler(dataset, subsets)
-    # loader = torch.utils.data.DataLoader(dataset, batch_sampler=batch_sampler)
+    # def test_iteration():
+    #     batch_size = 128
+    #     seeds = list(range(5))
+    #     subset_sizes = [1, 1, 4, 4, 10000]
+    #     multi_iterator = jax_multi_iterator(
+    #         dataset, batch_size, seeds, subset_sizes)
 
-    def test_iteration():
-        batch_size = 128
-        seeds = list(range(5))
-        subset_sizes = [1, 1, 4, 4, 10000]
-        multi_iterator = jax_multi_iterator(
-            dataset, batch_size, seeds, subset_sizes)
+    #     batch = next(multi_iterator)
+    #     print("done")
 
-        batch = next(multi_iterator)
-        print("done")
+    # if args.debug:
+    #     import jax
+    #     with jax.disable_jit():
+    #         print("running without jit")
+    #         test_iteration()
+    # else:
+    #     print("running with jit")
+    #     test_iteration()
 
-    if args.debug:
-        import jax
-        with jax.disable_jit():
-            print("running without jit")
-            test_iteration()
-    else:
-        print("running with jit")
-        test_iteration()
+    import dataset_utils
+    dataset = dataset_utils.DatasetCache(dataset)
+    white_dataset = dataset_utils.DatasetWhiten(dataset)
+    print(white_dataset.mean, white_dataset.std)
+
+    mean, std = compute_stats(dataset, [], 256)
+    print(mean, std)
+
+    # train_x, _ = dataset_to_jax(dataset)
+    # print(train_x.mean(), train_x.std())

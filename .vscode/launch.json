@@ -4,6 +4,19 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
+        {
+            "name": "Python: run",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "internalConsole",
+            "args": [
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "3",
+            }
+        },
         {
             "name": "Python: debug flag",
             "type": "python",
@@ -12,6 +25,9 @@
             "console": "internalConsole",
             "args": [
                 "--debug",
-            ]
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "3",
+            }
         }
 }

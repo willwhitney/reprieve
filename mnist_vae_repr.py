@@ -140,7 +140,8 @@ def build_repr(device, repr_dim):
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     train_loader = torch.utils.data.DataLoader(
-        mnist_dataset.MNIST('../data', train=True, download=True, n_examples=60000,
+        mnist_dataset.MNIST('../data', train=True, download=True,
+                            n_examples=60000,
                             transform=transforms.Compose([
                                 transforms.Normalize((0.1307,), (0.3081,))
                             ])),

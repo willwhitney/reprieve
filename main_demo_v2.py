@@ -1,17 +1,20 @@
-import math
-import numpy as np
+# import math
+# import numpy as np
+import pandas as pd
 
 import jax
-from jax import numpy as jnp, random, jit, lax
+from jax import numpy as jnp, random
 
-import flax
+# import flax
 from flax import nn, optim
 
-import torch
-from torch.utils.data import DataLoader
+# import torch
+# from torch.utils.data import DataLoader
 import torchvision
 
 import apiv2
+import mnist_vae_repr
+from mnist_noisygt_dataset import MNISTNoisyGTDataset
 
 
 class MLPClassifier(nn.Module):
@@ -38,7 +41,7 @@ def loss_fn(model, batch):
     logits = model(batch[0])
     loss = jnp.mean(cross_entropy(logits, batch[1]))
     return loss
-grad_loss_fn = jax.grad(loss_fn)
+grad_loss_fn = jax.grad(loss_fn)  # noqa: E305
 
 
 def init_fn(seed):
@@ -66,16 +69,43 @@ def eval_fn(optimizer, batch):
 
 
 def main():
-    dataset = torchvision.datasets.MNIST(
+    train_steps = 4e3
+    n_seeds = 5
+    use_vmap = True
+
+    dataset_mnist = torchvision.datasets.MNIST(
         '../data', train=True, download=True,
         transform=torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.1307,), (0.3081,))]))
+    raw_loss_data_estimator = apiv2.LossDataEstimator(
+        init_fn, train_step, eval_fn, dataset_mnist,
+        train_steps=train_steps, n_seeds=n_seeds,
+        use_vmap=use_vmap, verbose=True)
+    raw_loss_data_estimator.compute_curve(n_points=10)
 
-    loss_data_estimator = apiv2.LossDataEstimator(
-        init_fn, train_step, eval_fn, dataset,
-        train_steps=1e3, use_vmap=False)
-    loss_data_estimator.compute_curve(n_points=10)
+    dataset_noisygt = MNISTNoisyGTDataset(
+        split='train', ntrain=60000, nval=0, ntest=0,
+        p_corrupt=0.05)
+    noisy_loss_data_estimator = apiv2.LossDataEstimator(
+        init_fn, train_step, eval_fn, dataset_noisygt,
+        train_steps=train_steps, n_seeds=n_seeds,
+        use_vmap=use_vmap, verbose=True)
+    noisy_loss_data_estimator.compute_curve(n_points=10)
+
+    raw_results = raw_loss_data_estimator.to_dataframe()
+    raw_results['name'] = 'Raw'
+    noisy_results = noisy_loss_data_estimator.to_dataframe()
+    noisy_results['name'] = 'Noisy labels'
+
+    outcome_df = pd.concat([
+        raw_results,
+        noisy_results,
+    ])
+
+    save_path = f'results_vmap{use_vmap}_train{train_steps}_seed{n_seeds}.png'
+    apiv2.render_curve(outcome_df, save_path=save_path)
+    # return outcome_df
 
 
 if __name__ == '__main__':

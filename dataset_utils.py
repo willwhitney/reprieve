@@ -91,10 +91,19 @@ class DatasetShuffle(DatasetWrapper):
         return self.dataset[self.mapping[index]]
 
 
-def sample_indices(rng, n, k):
-    import jax.random as jr
-    return jr.randint(rng, shape=(k,), maxval=n)
+class DatasetTransform(DatasetWrapper):
+    def __init__(self, dataset, transform=None, target_transform=None):
+        super().__init__(dataset)
+        self.transform = transform
+        self.target_transform = target_transform
 
+    def __getitem__(self, index):
+        x, y = super().__getitem__(index)
 
-def load_batch(dataset, indices):
-    raise NotImplementedError
+        if self.transform is not None:
+            x = self.transform(x)
+
+        if self.target_transform is not None:
+            y = self.target_transform(y)
+
+        return x, y
