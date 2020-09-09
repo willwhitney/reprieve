@@ -7,25 +7,57 @@ def batch_to_numpy(batch):
     return (batch[0].numpy(), batch[1].numpy())
 
 
-def dataset_to_jax(dataset):
+def make_cpu_tensor(shape, dtype=float):
     import jax
     from jax import numpy as jnp
+    tiny = jnp.zeros((), dtype=dtype)
+    tiny_cpu = jax.device_put(tiny, jax.local_devices(backend='cpu')[0])
+    big_cpu = jnp.tile(tiny_cpu, shape)
+    return big_cpu
+
+
+def torch_to_jax(tensor):
+    """Zero-copy transfer of a torch CPU tensor to a JAX CPU ndarray."""
+    import jax
+    from jax import dlpack as jdlpack
+    from torch.utils import dlpack as tdlpack
+
+    cpu_backend = jax.local_devices(backend='cpu')[0]
+    packed_tensor = tdlpack.to_dlpack(tensor)
+    return jdlpack.from_dlpack(packed_tensor, backend=cpu_backend)
+
+
+def dataset_to_jax(dataset, batch_transforms,
+                   batch_size=256, whiten=False, stats=None):
+    """Transforms a dataset one batch at a time and returns a JAX tensor.
+
+    The code is convoluted in order to avoid ever having two copies of the
+    dataset in memory.
+    """
+    x_shape = dataset[0][0].shape
+    y_shape = dataset[0][1].shape
 
     def stack_data(loader):
-        xs, ys = [], []
+        xs = torch.empty((len(dataset), *x_shape), dtype=dataset[0][0].dtype)
+        ys = torch.empty((len(dataset), *y_shape), dtype=dataset[0][1].dtype)
+        i = 0
         for x, y in loader:
-            xs.append(x.float())
-            ys.append(y)
-        return torch.cat(xs, dim=0), torch.cat(ys, dim=0)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=10000)
+            x = apply_transforms(batch_transforms, x.numpy())
+            xs[i: i + x.shape[0]] = x
+            ys[i: i + y.shape[0]] = y
+        return xs, ys
+
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
     train_x, train_y = stack_data(loader)
 
-    train_x = train_x.numpy()  # .astype(np.float32)
-    train_y = train_y.numpy()  # .astype(np.float32)
-    train_x, train_y = jnp.array(train_x), jnp.array(train_y)
-    train_x = jax.device_put(train_x, jax.local_devices(backend='cpu')[0])
-    train_y = jax.device_put(train_y, jax.local_devices(backend='cpu')[0])
-    return train_x, train_y
+    if whiten:
+        if stats is None:
+            stats = (train_x.mean(), train_x.std())
+        train_x.sub_(stats[0])
+        train_x.div_(stats[1])
+    train_x = torch_to_jax(train_x)
+    train_y = torch_to_jax(train_y)
+    return (train_x, train_y), stats
 
 
 def jax_multi_iterator(dataset, batch_size, seeds, subset_sizes):
@@ -33,8 +65,7 @@ def jax_multi_iterator(dataset, batch_size, seeds, subset_sizes):
     from jax import numpy as jnp, random as jr
     seeds = jnp.array(seeds)
     subset_sizes = jnp.array(subset_sizes, dtype=jnp.int32)
-
-    train_x, train_y = dataset_to_jax(dataset)
+    train_x, train_y = dataset
     dataset_size = len(train_x)
 
     @jax.jit

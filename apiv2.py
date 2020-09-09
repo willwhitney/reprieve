@@ -34,6 +34,9 @@ class LossDataEstimator:
             train_step_fn, plus a batch of data, and returns the _mean_ loss
             over points in that batch. should not mutate anything.
         - dataset: a PyTorch Dataset
+        - representation_fn: (function ndarray -> ndarray) a function which
+            takes in a batch of observations from the dataset, given as a numpy
+            array, and gives back an ndarray of transformed observations
         """
         self.init_fn = init_fn
         self.train_step_fn = train_step_fn
@@ -55,33 +58,86 @@ class LossDataEstimator:
         # TODO: check the type of the dataset and make this work for
         # PyTorch Dataset or tensors
 
-        if cache_data:
-            # do all the transformations now and cache the result
-            self.dataset = dataset_utils.DatasetTransformCache(
-                self.dataset, transform=self.representation_fn)
-            self.batch_transforms = []
-        else:
-            # transform the data later, after we load each batch
-            self.batch_transforms = [self.representation_fn]
 
-        if whiten:
-            mean, std = utils.compute_stats(self.dataset, self.batch_transforms,
-                                            self.batch_size)
-            whiten_transform = utils.make_whiten_transform(mean, std)
-            self.batch_transforms.append(whiten_transform)
-
-        # apply the transformation, then cache and whiten
-        # self.dataset = dataset_utils.DatasetTransform(
-        #     self.dataset, transform=self.representation_fn)
-        # if cache_data:
-        #     self.dataset = dataset_utils.DatasetCache(self.dataset)
-
+        # Step 1: split into train and val
         self.val_size = math.ceil(len(self.dataset) * self.val_frac)
         self.max_train_size = len(self.dataset) - self.val_size
         self.train_set = dataset_utils.DatasetSubset(
             self.dataset, stop=self.max_train_size)
         self.val_set = dataset_utils.DatasetSubset(
             self.dataset, start=self.max_train_size)
+
+
+        # Step 2: figure out when / if we're caching the data
+        if use_vmap:
+            # transform the whole training and put it in JAX
+            self.train_set, stats = utils.dataset_to_jax(
+                self.train_set,
+                batch_transforms=[self.representation_fn],
+                batch_size=batch_size, whiten=whiten)
+            # we've already used representation_fn to transform
+            self.batch_transforms = []
+        elif cache_data:
+            # transform the data and cache it as a Pytorch dataset
+            self.train_set = dataset_utils.DatasetTransformCache(
+                self.train_set, transform=self.representation_fn)
+            self.val_set = dataset_utils.DatasetTransformCache(
+                self.val_set, transform=self.representation_fn)
+            # we haven't computed stats yet
+            stats = None
+            # we've already used representation_fn to transform
+            self.batch_transforms = []
+        else:
+            # we haven't computed stats yet
+            stats = None
+            # don't transform or cache the data yet
+            # instead add representation_fn and transform one batch at a time
+            self.batch_transforms = [self.representation_fn]
+
+
+        # Step 3: whiten transformed data
+        if whiten:
+            if stats is None:
+                # compute stats by streaming one batch at a time through
+                # batch_transforms
+                stats = utils.compute_stats(
+                    self.dataset, self.batch_transforms, self.batch_size)
+            whiten_transform = utils.make_whiten_transform(*stats)
+            self.batch_transforms.append(whiten_transform)
+
+
+        # if cache_data:
+        #     # do all the transformations now and cache the result
+        #     self.dataset = dataset_utils.DatasetTransformCache(
+        #         self.dataset, transform=self.representation_fn)
+        #     self.batch_transforms = []
+        # else:
+        #     # transform the data later, after we load each batch
+        #     self.batch_transforms = [self.representation_fn]
+
+        # if whiten:
+        #     mean, std = utils.compute_stats(self.dataset, self.batch_transforms,
+        #                                     self.batch_size)
+        #     whiten_transform = utils.make_whiten_transform(mean, std)
+        #     self.batch_transforms.append(whiten_transform)
+
+        # # apply the transformation, then cache and whiten
+        # # self.dataset = dataset_utils.DatasetTransform(
+        # #     self.dataset, transform=self.representation_fn)
+        # # if cache_data:
+        # #     self.dataset = dataset_utils.DatasetCache(self.dataset)
+
+        # self.val_size = math.ceil(len(self.dataset) * self.val_frac)
+        # self.max_train_size = len(self.dataset) - self.val_size
+        # self.train_set = dataset_utils.DatasetSubset(
+        #     self.dataset, stop=self.max_train_size)
+        # self.val_set = dataset_utils.DatasetSubset(
+        #     self.dataset, start=self.max_train_size)
+
+        # if self.use_vmap:
+        #     # turn the training set into JAX tensors
+        #     # note that since we require cache_data = True, the data has
+        #     self.train_set = utils.dataset_to_jax(self.train_set, )
 
         self.results = pd.DataFrame(
             columns=["seed", "samples", "val_loss"])
