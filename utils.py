@@ -47,10 +47,11 @@ def t_dtype_32(x):
 def transform_stack_data(loader, batch_transforms, dataset_len):
     i = 0
     for x, y in loader:
+        x = apply_transforms(batch_transforms, x.numpy())
+        x = torch.as_tensor(x)
         if i == 0:
             xs = torch.empty((dataset_len, *x.shape[1:]), dtype=t_dtype_32(x))
             ys = torch.empty((dataset_len, *y.shape[1:]), dtype=t_dtype_32(y))
-        x = apply_transforms(batch_transforms, x.numpy())
         xs[i: i + x.shape[0]] = torch.as_tensor(x)
         ys[i: i + y.shape[0]] = torch.as_tensor(y)
         i += x.shape[0]

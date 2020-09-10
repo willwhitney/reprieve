@@ -1,4 +1,5 @@
 import math
+import random
 import numpy as np
 import pandas as pd
 import altair as alt
@@ -67,6 +68,7 @@ class LossDataEstimator:
 
         torch.manual_seed(0)
         np.random.seed(0)
+        random.seed(0)
 
         # Step 1: split into train and val
         self.val_size = math.ceil(len(self.dataset) * self.val_frac)

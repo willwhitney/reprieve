@@ -17,26 +17,27 @@ class MLPClassifier(nn.Module):
         return preds
 
 
-def init_fn(seed):
-    rng = random.PRNGKey(seed)
-    classifier = MLPClassifier.partial(hidden_layers=2,
-                                       hidden_dim=512,
-                                       n_classes=10)
-    _, initial_params = classifier.init_by_shape(rng, [(128, 784)])
-    initial_model = nn.Model(classifier, initial_params)
-    optimizer = optim.Adam(1e-3).create(initial_model)
-    return optimizer
+def make_algorithm(input_shape, n_classes):
+    def init_fn(seed):
+        rng = random.PRNGKey(seed)
+        classifier = MLPClassifier.partial(hidden_layers=2,
+                                           hidden_dim=512,
+                                           n_classes=n_classes)
+        _, initial_params = classifier.init_by_shape(rng, [(128, *input_shape)])
+        initial_model = nn.Model(classifier, initial_params)
+        optimizer = optim.Adam(1e-3).create(initial_model)
+        return optimizer
 
+    @jax.jit
+    def train_step_fn(optimizer, batch):
+        batch = common.batch_to_jax(batch)
+        loss, grad = common.loss_and_grad_fn(optimizer.target, batch)
+        optimizer = optimizer.apply_gradient(grad)
+        return optimizer, loss
 
-@jax.jit
-def train_step_fn(optimizer, batch):
-    batch = common.batch_to_jax(batch)
-    loss, grad = common.loss_and_grad_fn(optimizer.target, batch)
-    optimizer = optimizer.apply_gradient(grad)
-    return optimizer, loss
+    @jax.jit
+    def eval_fn(optimizer, batch):
+        batch = common.batch_to_jax(batch)
+        return common.loss_fn(optimizer.target, batch)
 
-
-@jax.jit
-def eval_fn(optimizer, batch):
-    batch = common.batch_to_jax(batch)
-    return common.loss_fn(optimizer.target, batch)
+    return init_fn, train_step_fn, eval_fn

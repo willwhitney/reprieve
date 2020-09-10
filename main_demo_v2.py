@@ -4,40 +4,53 @@ import jax
 import torchvision
 
 import apiv2
-import mnist_vae_repr
-from mnist_noisygt_dataset import MNISTNoisyGTDataset
-# from algorithms import mlp as alg
-from algorithms import torch_mlp as alg
+import representations.mnist_vae
+from mnist_noisy_label import MNISTNoisyLabelDataset
+from algorithms import mlp as alg
+# from algorithms import torch_mlp as alg
 
 
 def main(args):
+    init_fn, train_step_fn, eval_fn = alg.make_algorithm((1, 28, 28), 10)
     dataset_mnist = torchvision.datasets.MNIST(
-        '../data', train=True, download=True,
+        './data', train=True, download=True,
         transform=torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.1307,), (0.3081,))]))
     raw_loss_data_estimator = apiv2.LossDataEstimator(
-        alg.init_fn, alg.train_step_fn, alg.eval_fn, dataset_mnist,
+        init_fn, train_step_fn, eval_fn, dataset_mnist,
         train_steps=args.train_steps, n_seeds=args.seeds,
         use_vmap=args.use_vmap, verbose=True)
     raw_loss_data_estimator.compute_curve(n_points=10)
 
-    dataset_noisygt = MNISTNoisyGTDataset(
-        split='train', ntrain=60000, nval=0, ntest=0,
-        p_corrupt=0.05)
+    vae_repr = representations.mnist_vae.build_repr(8)
+    init_fn, train_step_fn, eval_fn = alg.make_algorithm((8,), 10)
+    vae_loss_data_estimator = apiv2.LossDataEstimator(
+        init_fn, train_step_fn, eval_fn, dataset_mnist,
+        representation_fn=vae_repr,
+        train_steps=args.train_steps, n_seeds=args.seeds,
+        use_vmap=args.use_vmap, verbose=True)
+    vae_loss_data_estimator.compute_curve(n_points=10)
+
+    dataset_noisygt = MNISTNoisyLabelDataset(
+        train=True, p_corrupt=0.05)
+    init_fn, train_step_fn, eval_fn = alg.make_algorithm((784,), 10)
     noisy_loss_data_estimator = apiv2.LossDataEstimator(
-        alg.init_fn, alg.train_step_fn, alg.eval_fn, dataset_noisygt,
+        init_fn, train_step_fn, eval_fn, dataset_noisygt,
         train_steps=args.train_steps, n_seeds=args.seeds,
         use_vmap=args.use_vmap, verbose=True)
     noisy_loss_data_estimator.compute_curve(n_points=10)
 
     raw_results = raw_loss_data_estimator.to_dataframe()
     raw_results['name'] = 'Raw'
+    vae_results = vae_loss_data_estimator.to_dataframe()
+    vae_results['name'] = 'VAE'
     noisy_results = noisy_loss_data_estimator.to_dataframe()
     noisy_results['name'] = 'Noisy labels'
 
     outcome_df = pd.concat([
         raw_results,
+        vae_results,
         noisy_results,
     ])
 
