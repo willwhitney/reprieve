@@ -20,44 +20,54 @@ def torch_to_jax(tensor):
     """Zero-copy transfer of a torch CPU tensor to a JAX CPU ndarray."""
     import jax
     from jax import dlpack as jdlpack
+    import torch
     from torch.utils import dlpack as tdlpack
+    if tensor.dtype == torch.int64:
+        tensor = tensor.type(torch.int32)
 
     cpu_backend = jax.local_devices(backend='cpu')[0]
     packed_tensor = tdlpack.to_dlpack(tensor)
     return jdlpack.from_dlpack(packed_tensor, backend=cpu_backend)
 
 
-def dataset_to_jax(dataset, batch_transforms,
-                   batch_size=256, whiten=False, stats=None):
+# def to_tensor(x):
+#     if not isinstance(x, torch.Tensor):
+#         x = torch.tensor(x)
+#     return x
+
+
+def dataset_to_jax(dataset, batch_transforms, batch_size=256):
     """Transforms a dataset one batch at a time and returns a JAX tensor.
 
     The code is convoluted in order to avoid ever having two copies of the
     dataset in memory.
     """
-    x_shape = dataset[0][0].shape
-    y_shape = dataset[0][1].shape
+    x0, y0 = (torch.as_tensor(e) for e in dataset[0])
+    x_dtype = torch.int32 if x0.dtype == torch.int64 else x0.dtype
+    y_dtype = torch.int32 if y0.dtype == torch.int64 else y0.dtype
 
     def stack_data(loader):
-        xs = torch.empty((len(dataset), *x_shape), dtype=dataset[0][0].dtype)
-        ys = torch.empty((len(dataset), *y_shape), dtype=dataset[0][1].dtype)
+        xs = torch.empty((len(dataset), *x0.shape), dtype=x_dtype)
+        ys = torch.empty((len(dataset), *y0.shape), dtype=y_dtype)
         i = 0
         for x, y in loader:
             x = apply_transforms(batch_transforms, x.numpy())
-            xs[i: i + x.shape[0]] = x
-            ys[i: i + y.shape[0]] = y
+            xs[i: i + x.shape[0]] = torch.as_tensor(x)
+            ys[i: i + y.shape[0]] = torch.as_tensor(y)
+            i += x.shape[0]
         return xs, ys
 
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
     train_x, train_y = stack_data(loader)
 
-    if whiten:
-        if stats is None:
-            stats = (train_x.mean(), train_x.std())
-        train_x.sub_(stats[0])
-        train_x.div_(stats[1])
+    # if whiten:
+    #     if stats is None:
+    #         stats = (train_x.mean(), train_x.std())
+    #     train_x.sub_(stats[0])
+    #     train_x.div_(stats[1])
     train_x = torch_to_jax(train_x)
     train_y = torch_to_jax(train_y)
-    return (train_x, train_y), stats
+    return train_x, train_y
 
 
 def jax_multi_iterator(dataset, batch_size, seeds, subset_sizes):
@@ -106,6 +116,17 @@ def apply_transforms(batch_transforms, x):
 
 
 def compute_stats(dataset, batch_transforms, batch_size):
+    """Compute mean and std of the dataset Xs.
+
+    If dataset is a tuple (xs, ys), simply return the mean and std of xs.
+    Otherwise, take one batch at a time, transform them, and compute the stats
+        in a streaming way.
+    """
+    if isinstance(dataset, tuple):
+        # assume we have a tuple of (all_xs, all_ys), already transformed
+        assert len(batch_transforms) == 0
+        return float(dataset[0].mean()), float(dataset[0].std())
+
     loader = torch.utils.data.DataLoader(dataset, batch_size)
     n = len(dataset) * dataset[0][0].nelement()
 
@@ -122,13 +143,17 @@ def compute_stats(dataset, batch_transforms, batch_size):
         data_sum_of_squares += ((x - offset) ** 2).sum()
     data_mean = offset + data_sum / n
     data_variance = (data_sum_of_squares - data_sum ** 2 / n) / n
-    return data_mean, data_variance ** 0.5
+    return float(data_mean), float(data_variance ** 0.5)
 
 
 def make_whiten_transform(mean, std):
     def _helper(x):
         return (x - mean) / std
     return _helper
+
+
+def no_op(*args, **kwargs):
+    pass
 
 
 if __name__ == "__main__":

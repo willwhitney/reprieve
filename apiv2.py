@@ -3,7 +3,11 @@ import numpy as np
 import pandas as pd
 import altair as alt
 
+import torch
 from torch.utils.data import DataLoader
+
+# TODO: remove this
+import jax.profiler
 
 import utils
 import dataset_utils
@@ -23,12 +27,11 @@ class LossDataEstimator:
             state for the training algorithm. this initial state will be fed to
             train_step_fn, and the output of train_step_fn will replace it at
             each step.
-        - train_step_fn: (function (object, (ndarray, ndarray)) -> object)
-            a function which performs one step of training.
-            in particular, should map (state, batch) -> new_state where batch is
-            a tuple (batch of inputs, batch of targets). state is defined
-            recursively, being initialized by init_fn and replaced by
-            train_step.
+        - train_step_fn: (function (object, (ndarray, ndarray)) -> (object, num)
+            a function which performs one step of training. in particular,
+            should map (state, batch) -> (new_state, loss) where state is
+            defined recursively, initialized by init_fn and replaced by
+            train_step, and loss is a Python number.
         - eval_fn: (function (object, (ndarray, ndarray)) -> float)
             a function which takes in a state as produced by init_fn or
             train_step_fn, plus a batch of data, and returns the _mean_ loss
@@ -49,6 +52,10 @@ class LossDataEstimator:
         self.batch_size = batch_size
         self.use_vmap = use_vmap
         self.verbose = verbose
+        if self.verbose:
+            self.print = print
+        else:
+            self.print = utils.no_op
 
         if self.use_vmap and not cache_data:
             raise ValueError(("Setting use_vmap requires cache_data. "
@@ -58,6 +65,7 @@ class LossDataEstimator:
         # TODO: check the type of the dataset and make this work for
         # PyTorch Dataset or tensors
 
+        torch.manual_seed(0)
 
         # Step 1: split into train and val
         self.val_size = math.ceil(len(self.dataset) * self.val_frac)
@@ -67,14 +75,13 @@ class LossDataEstimator:
         self.val_set = dataset_utils.DatasetSubset(
             self.dataset, start=self.max_train_size)
 
-
         # Step 2: figure out when / if we're caching the data
         if use_vmap:
             # transform the whole training and put it in JAX
-            self.train_set, stats = utils.dataset_to_jax(
+            self.train_set = utils.dataset_to_jax(
                 self.train_set,
                 batch_transforms=[self.representation_fn],
-                batch_size=batch_size, whiten=whiten)
+                batch_size=batch_size)
             # we've already used representation_fn to transform
             self.batch_transforms = []
         elif cache_data:
@@ -83,65 +90,27 @@ class LossDataEstimator:
                 self.train_set, transform=self.representation_fn)
             self.val_set = dataset_utils.DatasetTransformCache(
                 self.val_set, transform=self.representation_fn)
-            # we haven't computed stats yet
-            stats = None
             # we've already used representation_fn to transform
             self.batch_transforms = []
         else:
-            # we haven't computed stats yet
-            stats = None
             # don't transform or cache the data yet
             # instead add representation_fn and transform one batch at a time
             self.batch_transforms = [self.representation_fn]
 
-
         # Step 3: whiten transformed data
         if whiten:
-            if stats is None:
-                # compute stats by streaming one batch at a time through
-                # batch_transforms
-                stats = utils.compute_stats(
-                    self.dataset, self.batch_transforms, self.batch_size)
-            whiten_transform = utils.make_whiten_transform(*stats)
+            # streams one batch at a time through batch_transforms
+            mean, std = utils.compute_stats(
+                self.train_set, self.batch_transforms, self.batch_size)
+            self.print((f"Whitening with representation "
+                        f"(mean, std): ({mean :.4f}, {std :.4f})"))
+            whiten_transform = utils.make_whiten_transform(mean, std)
             self.batch_transforms.append(whiten_transform)
-
-
-        # if cache_data:
-        #     # do all the transformations now and cache the result
-        #     self.dataset = dataset_utils.DatasetTransformCache(
-        #         self.dataset, transform=self.representation_fn)
-        #     self.batch_transforms = []
-        # else:
-        #     # transform the data later, after we load each batch
-        #     self.batch_transforms = [self.representation_fn]
-
-        # if whiten:
-        #     mean, std = utils.compute_stats(self.dataset, self.batch_transforms,
-        #                                     self.batch_size)
-        #     whiten_transform = utils.make_whiten_transform(mean, std)
-        #     self.batch_transforms.append(whiten_transform)
-
-        # # apply the transformation, then cache and whiten
-        # # self.dataset = dataset_utils.DatasetTransform(
-        # #     self.dataset, transform=self.representation_fn)
-        # # if cache_data:
-        # #     self.dataset = dataset_utils.DatasetCache(self.dataset)
-
-        # self.val_size = math.ceil(len(self.dataset) * self.val_frac)
-        # self.max_train_size = len(self.dataset) - self.val_size
-        # self.train_set = dataset_utils.DatasetSubset(
-        #     self.dataset, stop=self.max_train_size)
-        # self.val_set = dataset_utils.DatasetSubset(
-        #     self.dataset, start=self.max_train_size)
-
-        # if self.use_vmap:
-        #     # turn the training set into JAX tensors
-        #     # note that since we require cache_data = True, the data has
-        #     self.train_set = utils.dataset_to_jax(self.train_set, )
 
         self.results = pd.DataFrame(
             columns=["seed", "samples", "val_loss"])
 
+    @jax.profiler.trace_function
     def compute_curve(self, n_points=10, sampling_type='log', points=None):
         """Computes the loss-data curve for the given algorithm and dataset.
         Arguments:
@@ -193,8 +162,9 @@ class LossDataEstimator:
         return upper_bound
 
     def to_dataframe(self):
-        return self.results
+        return self.results.copy()
 
+    @jax.profiler.trace_function
     def _compute_curve_sequential(self, points):
         for point in points:
             for seed in range(self.n_seeds):
@@ -209,9 +179,9 @@ class LossDataEstimator:
                     'val_loss': float(val_loss,)
                 }, ignore_index=True)
 
-                if self.verbose:
-                    print(self.results)
+                self.print(self.results)
 
+    @jax.profiler.trace_function
     def _compute_curve_full_vmap(self, points):
         seeds = list(range(self.n_seeds))
         jobs = [(point, seed) for point in points for seed in seeds]
@@ -230,9 +200,9 @@ class LossDataEstimator:
                 'val_loss': float(val_loss),
             }, ignore_index=True)
 
-        if self.verbose:
-            print(self.results)
+        self.print(self.results)
 
+    @jax.profiler.trace_function
     def _train_full_vmap(self, multi_iterator, seeds):
         import jax
         import jax.numpy as jnp
@@ -240,8 +210,10 @@ class LossDataEstimator:
         states = jax.vmap(self.init_fn)(jnp.array(seeds))
 
         for step in range(self.train_steps):
-            stacked_batch = next(multi_iterator)
-            states = vmap_train_step(states, stacked_batch)
+            stacked_xs, stacked_ys = next(multi_iterator)
+            stacked_xs = utils.apply_transforms(
+                self.batch_transforms, stacked_xs)
+            states, losses = vmap_train_step(states, (stacked_xs, stacked_ys))
         return states
 
     def _make_loader(self, dataset, seed):
@@ -250,6 +222,7 @@ class LossDataEstimator:
             torch.manual_seed(seed * worker_id)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
+    @jax.profiler.trace_function
     def _train(self, seed, dataset):
         """Performs training with the algorithm associated with this LDE.
         Runs `self.train_steps` batches' worth of updates to the model and
@@ -260,13 +233,16 @@ class LossDataEstimator:
         step = 0
         while step < self.train_steps:
             for batch in loader:
-                batch = utils.batch_to_numpy(batch)
-                state = self.train_step_fn(state, batch)
+                xs, ys = utils.batch_to_numpy(batch)
+                xs = utils.apply_transforms(
+                    self.batch_transforms, xs)
+                state = self.train_step_fn(state, (xs, ys))
                 step += 1
                 if step >= self.train_steps:
                     break
         return state
 
+    @jax.profiler.trace_function
     def _eval(self, state, dataset):
         """Evaluates the model specified by state on dataset.
         Computes the average loss by summing the total loss over all datapoints
@@ -276,12 +252,15 @@ class LossDataEstimator:
         loader = self._make_loader(dataset, seed=0)
         for batch in loader:
             # careful to deal with different-sized batches
-            batch = utils.batch_to_numpy(batch)
-            batch_examples = batch[0].shape[0]
-            loss += self.eval_fn(state, batch) * batch_examples
+            xs, ys = utils.batch_to_numpy(batch)
+            xs = utils.apply_transforms(
+                self.batch_transforms, xs)
+            batch_examples = xs.shape[0]
+            loss += self.eval_fn(state, (xs, ys)) * batch_examples
             examples += batch_examples
         return loss / examples
 
+    @jax.profiler.trace_function
     def _eval_vmap(self, states, dataset):
         """Evaluates
         """
@@ -295,13 +274,15 @@ class LossDataEstimator:
         loader = self._make_loader(dataset, seed=0)
         for batch in loader:
             # careful to deal with different-sized batches
-            batch = utils.batch_to_numpy(batch)
-            batch_examples = batch[0].shape[0]
+            xs, ys = utils.batch_to_numpy(batch)
+            xs = utils.apply_transforms(
+                self.batch_transforms, xs)
+            batch_examples = xs.shape[0]
 
             if losses is None:
-                losses = vmap_eval(states, batch) * batch_examples
+                losses = vmap_eval(states, (xs, ys)) * batch_examples
             else:
-                losses += vmap_eval(states, batch) * batch_examples
+                losses += vmap_eval(states, (xs, ys)) * batch_examples
             examples += batch_examples
         return losses / examples
 
@@ -327,29 +308,17 @@ def render_curve(df, save_path=None):
     # TODO: render an Altair plot of the dataframe. by default:
     #   - in a Jupyter environment, we should return something Jupyter displays
     #   - in a script, we should require a save path
-    # def loss_data_chart(df, title='', xdomain=[8, 60000], ydomain=[0.008, 2], xrules=[], yrules=[],
-    #                     color_title='Representation', final=False):
     title = 'Loss-data curve'
     color_title = 'Representation'
-    xdomain = [8, 60000]
-    ydomain = [0.008, 2]
     line_width = 5
     label_size = 24
     title_size = 30
 
-    # rules_df = pd.concat([
-    #     pd.DataFrame({'x': xrules}),
-    #     pd.DataFrame({'y': yrules})
-    # ], sort=False)
-
-    xscale = alt.Scale(type='log', domain=xdomain, nice=False)
-    yscale = alt.Scale(type='log', domain=ydomain, nice=False)
+    xscale = alt.Scale(type='log')
+    yscale = alt.Scale(type='log')
 
     x_axis = alt.X('samples', scale=xscale, title='Dataset size')
     y_axis = alt.Y('mean(val_loss)', scale=yscale, title='Validation loss')
-    # color_axis = alt.Color('label:N', title=color_title,
-    #                        scale=alt.Scale(scheme=colorscheme,),
-    #                        legend=None)
 
     colorscheme = 'set1'
     stroke_color = '333'
