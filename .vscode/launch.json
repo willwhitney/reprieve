@@ -6,10 +6,10 @@
     "configurations": [
 
         {
-            "name": "Python: run",
+            "name": "main_demo_v2",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
+            "program": "main_demo_v2.py",
             "console": "internalConsole",
             "args": [
             ],
@@ -18,13 +18,26 @@
             }
         },
         {
-            "name": "Python: debug flag",
+            "name": "main_demo_v2 debug",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
+            "program": "main_demo_v2.py",
             "console": "internalConsole",
             "args": [
                 "--debug",
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "3",
+            }
+        },
+        {
+            "name": "main_demo_v2 no_vmap",
+            "type": "python",
+            "request": "launch",
+            "program": "main_demo_v2.py",
+            "console": "internalConsole",
+            "args": [
+                "--no_vmap",
             ],
             "env": {
                 "CUDA_VISIBLE_DEVICES": "3",

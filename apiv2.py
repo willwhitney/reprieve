@@ -66,6 +66,7 @@ class LossDataEstimator:
         # PyTorch Dataset or tensors
 
         torch.manual_seed(0)
+        np.random.seed(0)
 
         # Step 1: split into train and val
         self.val_size = math.ceil(len(self.dataset) * self.val_frac)
@@ -82,14 +83,22 @@ class LossDataEstimator:
                 self.train_set,
                 batch_transforms=[self.representation_fn],
                 batch_size=batch_size)
-            # we've already used representation_fn to transform
+            self.val_set = utils.dataset_to_jax(
+                self.val_set,
+                batch_transforms=[self.representation_fn],
+                batch_size=batch_size)
+            # we've already used representation_fn to transform the data
             self.batch_transforms = []
         elif cache_data:
             # transform the data and cache it as a Pytorch dataset
             self.train_set = dataset_utils.DatasetTransformCache(
-                self.train_set, transform=self.representation_fn)
+                self.train_set,
+                batch_transforms=[self.representation_fn],
+                batch_size=self.batch_size)
             self.val_set = dataset_utils.DatasetTransformCache(
-                self.val_set, transform=self.representation_fn)
+                self.val_set,
+                batch_transforms=[self.representation_fn],
+                batch_size=self.batch_size)
             # we've already used representation_fn to transform
             self.batch_transforms = []
         else:
@@ -216,11 +225,8 @@ class LossDataEstimator:
             states, losses = vmap_train_step(states, (stacked_xs, stacked_ys))
         return states
 
-    def _make_loader(self, dataset, seed):
-        def _worker_init_fn(worker_id):
-            import torch
-            torch.manual_seed(seed * worker_id)
-        return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+    def _make_loader(self, dataset, shuffle):
+        return DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
 
     @jax.profiler.trace_function
     def _train(self, seed, dataset):
@@ -228,7 +234,8 @@ class LossDataEstimator:
         Runs `self.train_steps` batches' worth of updates to the model and
         returns the state.
         """
-        loader = self._make_loader(dataset, seed)
+        torch.manual_seed(seed)
+        loader = self._make_loader(dataset, shuffle=True)
         state = self.init_fn(seed)
         step = 0
         while step < self.train_steps:
@@ -236,7 +243,7 @@ class LossDataEstimator:
                 xs, ys = utils.batch_to_numpy(batch)
                 xs = utils.apply_transforms(
                     self.batch_transforms, xs)
-                state = self.train_step_fn(state, (xs, ys))
+                state, loss = self.train_step_fn(state, (xs, ys))
                 step += 1
                 if step >= self.train_steps:
                     break
@@ -249,7 +256,7 @@ class LossDataEstimator:
         and dividing.
         """
         loss, examples = 0, 0
-        loader = self._make_loader(dataset, seed=0)
+        loader = self._make_loader(dataset, shuffle=False)
         for batch in loader:
             # careful to deal with different-sized batches
             xs, ys = utils.batch_to_numpy(batch)
@@ -271,10 +278,11 @@ class LossDataEstimator:
         # Optimizer with nested parameters) so return however many losses we get
         losses = None
         examples = 0
-        loader = self._make_loader(dataset, seed=0)
-        for batch in loader:
+        for i in range(0, self.val_size, self.batch_size):
+            xs = self.val_set[0][i: i + self.batch_size]
+            ys = self.val_set[1][i: i + self.batch_size]
+
             # careful to deal with different-sized batches
-            xs, ys = utils.batch_to_numpy(batch)
             xs = utils.apply_transforms(
                 self.batch_transforms, xs)
             batch_examples = xs.shape[0]

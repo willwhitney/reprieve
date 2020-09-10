@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 
 import numpy as np
 
+import utils
 
 # TODO: rename this file to dataset_wrappers
 
@@ -24,7 +25,6 @@ class DatasetCache(DatasetWrapper):
         super().__init__(dataset)
         self.cache = {}
 
-    # @profile
     def __getitem__(self, index):
         if index in self.cache:
             return self.cache[index]
@@ -107,3 +107,16 @@ class DatasetTransform(DatasetWrapper):
             y = self.target_transform(y)
 
         return x, y
+
+
+class DatasetTransformCache(DatasetWrapper):
+    def __init__(self, dataset, batch_transforms, batch_size):
+        super().__init__(dataset)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
+        data_x, data_y = utils.transform_stack_data(
+            loader, batch_transforms, len(dataset))
+        self.data_x = data_x
+        self.data_y = data_y
+
+    def __getitem__(self, index):
+        return self.data_x[index], self.data_y[index]
