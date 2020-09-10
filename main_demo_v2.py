@@ -23,14 +23,14 @@ def main(args):
         use_vmap=args.use_vmap, verbose=True)
     raw_loss_data_estimator.compute_curve(n_points=10)
 
-    vae_repr = representations.mnist_vae.build_repr(8)
-    init_fn, train_step_fn, eval_fn = alg.make_algorithm((8,), 10)
-    vae_loss_data_estimator = apiv2.LossDataEstimator(
-        init_fn, train_step_fn, eval_fn, dataset_mnist,
-        representation_fn=vae_repr,
-        train_steps=args.train_steps, n_seeds=args.seeds,
-        use_vmap=args.use_vmap, verbose=True)
-    vae_loss_data_estimator.compute_curve(n_points=10)
+    # vae_repr = representations.mnist_vae.build_repr(8)
+    # init_fn, train_step_fn, eval_fn = alg.make_algorithm((8,), 10)
+    # vae_loss_data_estimator = apiv2.LossDataEstimator(
+    #     init_fn, train_step_fn, eval_fn, dataset_mnist,
+    #     representation_fn=vae_repr,
+    #     train_steps=args.train_steps, n_seeds=args.seeds,
+    #     use_vmap=args.use_vmap, verbose=True)
+    # vae_loss_data_estimator.compute_curve(n_points=10)
 
     dataset_noisygt = MNISTNoisyLabelDataset(
         train=True, p_corrupt=0.05)
@@ -43,14 +43,14 @@ def main(args):
 
     raw_results = raw_loss_data_estimator.to_dataframe()
     raw_results['name'] = 'Raw'
-    vae_results = vae_loss_data_estimator.to_dataframe()
-    vae_results['name'] = 'VAE'
+    # vae_results = vae_loss_data_estimator.to_dataframe()
+    # vae_results['name'] = 'VAE'
     noisy_results = noisy_loss_data_estimator.to_dataframe()
     noisy_results['name'] = 'Noisy labels'
 
     outcome_df = pd.concat([
         raw_results,
-        vae_results,
+        # vae_results,
         noisy_results,
     ])
 
@@ -59,6 +59,12 @@ def main(args):
                  f'_train{args.train_steps}'
                  f'_seed{args.seeds}.png')
     apiv2.render_curve(outcome_df, save_path=save_path)
+
+    ns = [100, 1000, 10000]
+    epsilons = [1, 0.1, 0.01]
+    metrics_df = apiv2.compute_metrics(outcome_df, ns, epsilons)
+    print(metrics_df)
+    apiv2.render_latex(metrics_df, display=True)
     # return outcome_df
 
 

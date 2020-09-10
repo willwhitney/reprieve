@@ -5,13 +5,14 @@ import pandas as pd
 import altair as alt
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 
 # TODO: remove this
 import jax.profiler
 
 import utils
 import dataset_utils
+import metrics
 
 
 class LossDataEstimator:
@@ -37,10 +38,11 @@ class LossDataEstimator:
             a function which takes in a state as produced by init_fn or
             train_step_fn, plus a batch of data, and returns the _mean_ loss
             over points in that batch. should not mutate anything.
-        - dataset: a PyTorch Dataset
-        - representation_fn: (function ndarray -> ndarray) a function which
-            takes in a batch of observations from the dataset, given as a numpy
-            array, and gives back an ndarray of transformed observations
+        - dataset: a PyTorch Dataset or tuple (data_x, data_y).
+        - representation_fn: (function ndarray -> ndarray)
+            a function which takes in a batch of observations from the dataset,
+            given as a numpy array, and gives back an ndarray of transformed
+            observations.
         """
         self.init_fn = init_fn
         self.train_step_fn = train_step_fn
@@ -63,12 +65,15 @@ class LossDataEstimator:
                               "Either set cache_data=True or "
                               "turn off use_vmap."))
 
-        # TODO: check the type of the dataset and make this work for
-        # PyTorch Dataset or tensors
-
         torch.manual_seed(0)
         np.random.seed(0)
         random.seed(0)
+
+        if not isinstance(self.dataset, Dataset):
+            data_x, data_y = self.dataset
+            data_x = torch.as_tensor(data_x)
+            data_y = torch.as_tensor(data_y)
+            self.dataset = torch.utils.data.TensorDataset(data_x, data_y)
 
         # Step 1: split into train and val
         self.val_size = math.ceil(len(self.dataset) * self.val_frac)
@@ -120,6 +125,7 @@ class LossDataEstimator:
 
         self.results = pd.DataFrame(
             columns=["seed", "samples", "val_loss"])
+        self.results['samples'] = self.results['samples'].astype(int)
 
     @jax.profiler.trace_function
     def compute_curve(self, n_points=10, sampling_type='log', points=None):
@@ -315,9 +321,6 @@ class LossDataEstimator:
 
 
 def render_curve(df, save_path=None):
-    # TODO: render an Altair plot of the dataframe. by default:
-    #   - in a Jupyter environment, we should return something Jupyter displays
-    #   - in a script, we should require a save path
     title = 'Loss-data curve'
     color_title = 'Representation'
     line_width = 5
@@ -349,19 +352,6 @@ def render_curve(df, save_path=None):
         tooltip=['samples', 'name']
     )
 
-    # rule_x = alt.Chart(rules_df).mark_rule(
-    #     size=3, color='999', strokeDash=[
-    #         4, 4]).encode(
-    #     x='x')
-    # rule_y = alt.Chart(rules_df).mark_rule(
-    #     size=3, color='999', strokeDash=[
-    #         4, 4]).encode(
-    #     y='y')
-
-    # chart = alt.layer(rule_x, rule_y, line, point).resolve_scale(
-    #     color='independent',
-    #     shape='independent'
-    # )
     chart = alt.layer(line, point).resolve_scale(
         color='independent',
         shape='independent'
@@ -384,10 +374,38 @@ def render_curve(df, save_path=None):
                                 cornerRadius=0),
         view=alt.ViewConfig(strokeWidth=0, stroke=stroke_color)
     )
-    chart.save(save_path)
+    if save_path is not None:
+        chart.save(save_path)
     return chart
 
 
-def render_table(dataframe):
-    # TODO: return a literal string for a LaTeX table
-    raise NotImplementedError
+def compute_metrics(df, list_of_ns, list_of_epsilons):
+    return metrics.compute_all(df, list_of_ns, list_of_epsilons)
+
+
+def render_latex(metrics_df, display=False, save_path=None):
+    """Given a df of metrics from `compute_metrics`, renders a latex table.
+    """
+    metrics_df.index = metrics_df.index.str.replace('eps', '$\\\\varepsilon$')
+    metrics_df.index = metrics_df.index.str.replace('eSC',
+                                                    '$\\\\varepsilon$SC')
+    metrics_df = metrics_df.stack()
+    metrics_df = metrics_df.swaplevel().sort_values('n', ascending=True)
+
+    latex_str = metrics_df.to_latex(multicolumn_format='c',
+                                    float_format="{:0.2f}".format,
+                                    escape=False,
+                                    column_format='llrrr')
+    if save_path is not None:
+        metrics_df.to_latex(save_path,
+                            multicolumn_format='c',
+                            float_format="{:0.2f}".format,
+                            escape=False,
+                            column_format='llrrr')
+    if display:
+        import ipywidgets as widgets
+        import IPython.display
+        out = widgets.Output(layout={'border': '1px solid black'})
+        out.append_stdout(latex_str)
+        IPython.display.display(out)
+    return latex_str
