@@ -19,7 +19,7 @@ def main(args):
     raw_loss_data_estimator = reprieve.LossDataEstimator(
         init_fn, train_step_fn, eval_fn, dataset_mnist,
         train_steps=args.train_steps, n_seeds=args.seeds,
-        use_vmap=args.use_vmap, cache_data=args.cache_data,
+        use_vmap=False, cache_data=args.cache_data,
         verbose=True)
     raw_results = raw_loss_data_estimator.compute_curve(n_points=args.points)
 
@@ -29,7 +29,7 @@ def main(args):
         init_fn, train_step_fn, eval_fn, dataset_mnist,
         representation_fn=vae_repr,
         train_steps=args.train_steps, n_seeds=args.seeds,
-        use_vmap=args.use_vmap, cache_data=args.cache_data,
+        use_vmap=False, cache_data=args.cache_data,
         verbose=True)
     vae_results = vae_loss_data_estimator.compute_curve(n_points=args.points)
 
@@ -39,7 +39,7 @@ def main(args):
     noisy_loss_data_estimator = reprieve.LossDataEstimator(
         init_fn, train_step_fn, eval_fn, dataset_noisygt,
         train_steps=args.train_steps, n_seeds=args.seeds,
-        use_vmap=args.use_vmap, cache_data=args.cache_data,
+        use_vmap=False, cache_data=args.cache_data,
         verbose=True)
     noisy_results = noisy_loss_data_estimator.compute_curve(
         n_points=args.points)
@@ -56,7 +56,7 @@ def main(args):
 
     os.makedirs('results', exist_ok=True)
     save_path = ('results/'
-                 f'{args.name}_vmap{args.use_vmap}'
+                 f'{args.name}'
                  f'_train{args.train_steps}'
                  f'_seed{args.seeds}'
                  f'_point{args.points}')
