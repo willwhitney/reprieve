@@ -1,13 +1,13 @@
 import os
 import pandas as pd
 
+import jax
 import torchvision
 
-import apiv2
-import representations.mnist_vae
+import reprieve
+from reprieve.representations import mnist_vae
 from mnist_noisy_label import MNISTNoisyLabelDataset
-from algorithms import mlp as alg
-# from algorithms import torch_mlp as alg
+from reprieve.algorithms import mlp as alg
 
 
 def main(args):
@@ -17,27 +17,27 @@ def main(args):
         transform=torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.1307,), (0.3081,))]))
-    raw_loss_data_estimator = apiv2.LossDataEstimator(
+    raw_loss_data_estimator = reprieve.LossDataEstimator(
         init_fn, train_step_fn, eval_fn, dataset_mnist,
         train_steps=args.train_steps, n_seeds=args.seeds,
         use_vmap=args.use_vmap, cache_data=args.cache_data,
         verbose=True)
     raw_results = raw_loss_data_estimator.compute_curve(n_points=args.points)
 
-    # vae_repr = representations.mnist_vae.build_repr(8)
-    # init_fn, train_step_fn, eval_fn = alg.make_algorithm((8,), 10)
-    # vae_loss_data_estimator = apiv2.LossDataEstimator(
-    #     init_fn, train_step_fn, eval_fn, dataset_mnist,
-    #     representation_fn=vae_repr,
-    #     train_steps=args.train_steps, n_seeds=args.seeds,
-    #     use_vmap=args.use_vmap, cache_data=args.cache_data,
-    #     verbose=True)
-    # vae_results = vae_loss_data_estimator.compute_curve(n_points=args.points)
+    vae_repr = mnist_vae.build_repr(8)
+    init_fn, train_step_fn, eval_fn = alg.make_algorithm((8,), 10)
+    vae_loss_data_estimator = reprieve.LossDataEstimator(
+        init_fn, train_step_fn, eval_fn, dataset_mnist,
+        representation_fn=vae_repr,
+        train_steps=args.train_steps, n_seeds=args.seeds,
+        use_vmap=args.use_vmap, cache_data=args.cache_data,
+        verbose=True)
+    vae_results = vae_loss_data_estimator.compute_curve(n_points=args.points)
 
     dataset_noisygt = MNISTNoisyLabelDataset(
         train=True, p_corrupt=0.05)
     init_fn, train_step_fn, eval_fn = alg.make_algorithm((784,), 10)
-    noisy_loss_data_estimator = apiv2.LossDataEstimator(
+    noisy_loss_data_estimator = reprieve.LossDataEstimator(
         init_fn, train_step_fn, eval_fn, dataset_noisygt,
         train_steps=args.train_steps, n_seeds=args.seeds,
         use_vmap=args.use_vmap, cache_data=args.cache_data,
@@ -46,12 +46,12 @@ def main(args):
         n_points=args.points)
 
     raw_results['name'] = 'Raw'
-    # vae_results['name'] = 'VAE'
+    vae_results['name'] = 'VAE'
     noisy_results['name'] = 'Noisy labels'
 
     outcome_df = pd.concat([
         raw_results,
-        # vae_results,
+        vae_results,
         noisy_results,
     ])
 
@@ -60,16 +60,15 @@ def main(args):
                  f'{args.name}_vmap{args.use_vmap}'
                  f'_train{args.train_steps}'
                  f'_seed{args.seeds}'
-                 f'_point{args.points}.png')
+                 f'_point{args.points}')
 
     ns = [1000, 60000]
     epsilons = [1, 0.1, 0.01]
-    apiv2.render_curve(outcome_df, ns, epsilons, save_path=save_path)
-    metrics_df = apiv2.compute_metrics(outcome_df, ns, epsilons)
-    # metrics_df = apiv2.compute_metrics(outcome_df)
+    reprieve.render_curve(outcome_df, ns, epsilons,
+                          save_path=save_path + '.pdf')
+    metrics_df = reprieve.compute_metrics(outcome_df, ns, epsilons)
     print(metrics_df)
-    # apiv2.render_latex(metrics_df, display=True)
-    # return outcome_df
+    reprieve.render_latex(metrics_df, save_path=save_path + '.tex')
 
 
 if __name__ == '__main__':
@@ -87,7 +86,6 @@ if __name__ == '__main__':
     import time
     start = time.time()
     if args.debug:
-        import jax
         with jax.disable_jit():
             main(args)
     else:
