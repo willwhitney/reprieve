@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
-from representations import common
+from . import common
 
 DEVICE = "cuda"
 BATCH_SIZE = 128
@@ -116,6 +116,7 @@ def build_repr(repr_dim):
     with torch.no_grad():
         sample = torch.randn(64, model.latent_dim).to(DEVICE)
         sample = model.decode(sample).cpu()
-        save_image(sample.view(64, 1, 28, 28), 'mnist_vae_sample.png')
+        save_image(sample.view(64, 1, 28, 28), 'mnist_vae_sample.png',
+                   normalize=True)
     model.eval()
-    return common.numpyify_torch(model.repr, DEVICE)
+    return common.numpy_wrap_torch(model.repr, DEVICE)

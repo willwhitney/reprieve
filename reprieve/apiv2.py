@@ -434,7 +434,7 @@ def render_curve(df, ns=[], epsilons=[], save_path=None):
 
 
 def compute_metrics(df, ns=None, epsilons=[1.0, 0.1, 0.01]):
-    """Compute val loss, MDL, SDL, and eSC at the specified ns and epsilons.
+    """Compute val loss, MDL, SDL, and eSC at the specified `ns` and `epsilons`.
 
     Arguments:
     - df: (pd.DataFrame) the dataframe containing a loss-data curve as returned
@@ -454,7 +454,15 @@ def compute_metrics(df, ns=None, epsilons=[1.0, 0.1, 0.01]):
 
 
 def render_latex(metrics_df, display=False, save_path=None):
-    """Given a df of metrics from `compute_metrics`, renders a latex table.
+    """Given a df of metrics from `compute_metrics`, renders a LaTeX table.
+
+    Arguments:
+    - metrics_df: (pd.DataFrame) a dataframe as returned by `compute_metrics`
+    - display: (bool) *Jupyter only.* render an output widget containing the
+        latex string. necessary because otherwise lots of things will be
+        double-escaped.
+    - save_path: (str) if specified, saves the text for the LaTeX table in a
+        file.
     """
     metrics_df.index = metrics_df.index.str.replace(
         'eps', '$\\\\varepsilon$')
