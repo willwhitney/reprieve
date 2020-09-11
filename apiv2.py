@@ -2,7 +2,6 @@ import math
 import random
 import numpy as np
 import pandas as pd
-import altair as alt
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -43,6 +42,26 @@ class LossDataEstimator:
             a function which takes in a batch of observations from the dataset,
             given as a numpy array, and gives back an ndarray of transformed
             observations.
+        - val_frac: (float) the fraction of the data in [0, 1] to use for
+            validation
+        - n_seeds: (int) how many random seeds to use for estimating each point.
+            the seed is used for randomly sampling a subset dataset and for
+            initializing the algorithm.
+        - train_steps: (number) how many batches of training to use with the
+            algorithm. that is, how many times train_step_fn will be called on
+            a batch of data.
+        - batch_size: (int) the size of the batches used for training and eval
+        - cache_data: (bool) whether to cache the entire dataset in memory.
+            setting this to True will greatly improve performance by only
+            computing the representation once for each point in the dataset
+        - whiten: (bool) whether to normalize the dataset's Xs to have zero
+            mean and unit variance
+        - use_vmap: (bool) *only for JAX algorithms*. parallelize the training
+            of <algorithm> by using JAX's vmap function. may cause CUDA out of
+            memory errors; if this happens, call compute_curve with fewer
+            points at a time or use a smaller probe
+        - verbose: (bool) print out informative messages and results as we get
+            them
         """
         self.init_fn = init_fn
         self.train_step_fn = train_step_fn
@@ -138,9 +157,9 @@ class LossDataEstimator:
             (np.linspace).
         - points: (list of ints) manually specify the exact points at which to
             estimate the loss.
-        Returns: nothing.
+        Returns: the current DataFrame containing the loss-data curve.
         Effects: This LossDataEstimator instance will record the results of the
-            experiments which are run, including them in the results dataframe
+            experiments which are run, including them in the results DataFrame
             and using them to compute representation quality measures.
         """
         if points is None:
@@ -170,6 +189,7 @@ class LossDataEstimator:
             upper_bound - lower_bound
         - parallelism: (int) the number of experiments to run in each round of
             grid search.
+        Returns: an upper bound on the epsilon sample complexity
         """
         lower_bound, upper_bound = self._bound_esc(epsilon)
         while upper_bound - lower_bound > precision:
@@ -179,7 +199,10 @@ class LossDataEstimator:
         return upper_bound
 
     def to_dataframe(self):
+        """Return the current data for estimating the loss-data curve."""
         return self.results.copy()
+
+    # Private methods
 
     @jax.profiler.trace_function
     def _compute_curve_sequential(self, points):
@@ -197,6 +220,7 @@ class LossDataEstimator:
                 }, ignore_index=True)
 
                 self.print(self.results)
+        return self.to_dataframe()
 
     @jax.profiler.trace_function
     def _compute_curve_full_vmap(self, points):
@@ -218,6 +242,7 @@ class LossDataEstimator:
             }, ignore_index=True)
 
         self.print(self.results)
+        return self.to_dataframe()
 
     @jax.profiler.trace_function
     def _train_full_vmap(self, multi_iterator, seeds):
@@ -320,7 +345,26 @@ class LossDataEstimator:
         return (lower_bound, upper_bound)
 
 
-def render_curve(df, save_path=None):
+def render_curve(df, ns=[], epsilons=[], save_path=None):
+    """Render, and optionally save, a plot of the loss-data curve.
+    Optionally takes arguments `ns` and `epsilons` to draw lines on the plot
+    illustrating where metrics were calculated.
+    Arguments:
+    - df: (pd.DataFrame) the dataframe containing a loss-data curve as returned
+        by LossDataEstimator.compute_curve or LossDataEstimator.to_dataframe.
+    - ns: (list<num>) the list of training set sizes to use for computing
+        metrics.
+    - epsilons: (list<num>) the settings of epsilon used for computing SDL and
+        eSC.
+    - save_path: (str) a path (ending in .pdf or .png) to save the chart
+    """
+    import altair as alt
+    import altair_saver
+    alt.data_transformers.disable_max_rows()
+
+    if len(ns) > 0:
+        ns = _closest_valid_ns(df, ns)
+
     title = 'Loss-data curve'
     color_title = 'Representation'
     line_width = 5
@@ -352,7 +396,17 @@ def render_curve(df, save_path=None):
         tooltip=['samples', 'name']
     )
 
-    chart = alt.layer(line, point).resolve_scale(
+    rules_df = pd.concat([
+        pd.DataFrame({'x': ns}),
+        pd.DataFrame({'y': epsilons})
+    ], sort=False)
+
+    rule_x = alt.Chart(rules_df).mark_rule(
+        size=3, color='999', strokeDash=[4, 4]).encode(x='x')
+    rule_y = alt.Chart(rules_df).mark_rule(
+        size=3, color='999', strokeDash=[4, 4]).encode(y='y')
+
+    chart = alt.layer(rule_x, rule_y, line, point).resolve_scale(
         color='independent',
         shape='independent'
     )
@@ -375,20 +429,37 @@ def render_curve(df, save_path=None):
         view=alt.ViewConfig(strokeWidth=0, stroke=stroke_color)
     )
     if save_path is not None:
-        chart.save(save_path)
+        altair_saver.save(chart, save_path)
     return chart
 
 
-def compute_metrics(df, list_of_ns, list_of_epsilons):
-    return metrics.compute_all(df, list_of_ns, list_of_epsilons)
+def compute_metrics(df, ns=None, epsilons=[1.0, 0.1, 0.01]):
+    """Compute val loss, MDL, SDL, and eSC at the specified ns and epsilons.
+
+    Arguments:
+    - df: (pd.DataFrame) the dataframe containing a loss-data curve as returned
+        by LossDataEstimator.compute_curve or LossDataEstimator.to_dataframe.
+    - ns: (list<num>) the list of training set sizes to use for computing
+        metrics. this will be rounded up to the nearest point where the loss
+        has been computed. set this to [len(dataset)] to compute canonical
+        results.
+    - epsilons: (list<num>) the settings of epsilon used for computing SDL and
+        eSC.
+    """
+    if ns is None:
+        closest_ns = [max(df.samples)]
+    else:
+        closest_ns = _closest_valid_ns(df, ns)
+    return metrics.compute_all(df, closest_ns, epsilons)
 
 
 def render_latex(metrics_df, display=False, save_path=None):
     """Given a df of metrics from `compute_metrics`, renders a latex table.
     """
-    metrics_df.index = metrics_df.index.str.replace('eps', '$\\\\varepsilon$')
-    metrics_df.index = metrics_df.index.str.replace('eSC',
-                                                    '$\\\\varepsilon$SC')
+    metrics_df.index = metrics_df.index.str.replace(
+        'eps', '$\\\\varepsilon$')
+    metrics_df.index = metrics_df.index.str.replace(
+        'eSC', '$\\\\varepsilon$SC')
     metrics_df = metrics_df.stack()
     metrics_df = metrics_df.swaplevel().sort_values('n', ascending=True)
 
@@ -409,3 +480,16 @@ def render_latex(metrics_df, display=False, save_path=None):
         out.append_stdout(latex_str)
         IPython.display.display(out)
     return latex_str
+
+
+def _closest_valid_ns(df, ns):
+    closest_ns = []
+    available_ns = sorted(list(df.samples.unique()))
+    last_match = 0
+    for desired_n in sorted(ns):
+        i = last_match
+        while desired_n > available_ns[i] and i < len(available_ns) - 1:
+            i += 1
+        last_match = i
+        closest_ns.append(available_ns[i])
+    return closest_ns

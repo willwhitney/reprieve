@@ -1,5 +1,5 @@
+import os
 import pandas as pd
-import jax
 
 import torchvision
 
@@ -20,8 +20,9 @@ def main(args):
     raw_loss_data_estimator = apiv2.LossDataEstimator(
         init_fn, train_step_fn, eval_fn, dataset_mnist,
         train_steps=args.train_steps, n_seeds=args.seeds,
-        use_vmap=args.use_vmap, verbose=True)
-    raw_loss_data_estimator.compute_curve(n_points=10)
+        use_vmap=args.use_vmap, cache_data=args.cache_data,
+        verbose=True)
+    raw_results = raw_loss_data_estimator.compute_curve(n_points=args.points)
 
     # vae_repr = representations.mnist_vae.build_repr(8)
     # init_fn, train_step_fn, eval_fn = alg.make_algorithm((8,), 10)
@@ -29,8 +30,9 @@ def main(args):
     #     init_fn, train_step_fn, eval_fn, dataset_mnist,
     #     representation_fn=vae_repr,
     #     train_steps=args.train_steps, n_seeds=args.seeds,
-    #     use_vmap=args.use_vmap, verbose=True)
-    # vae_loss_data_estimator.compute_curve(n_points=10)
+    #     use_vmap=args.use_vmap, cache_data=args.cache_data,
+    #     verbose=True)
+    # vae_results = vae_loss_data_estimator.compute_curve(n_points=args.points)
 
     dataset_noisygt = MNISTNoisyLabelDataset(
         train=True, p_corrupt=0.05)
@@ -38,14 +40,13 @@ def main(args):
     noisy_loss_data_estimator = apiv2.LossDataEstimator(
         init_fn, train_step_fn, eval_fn, dataset_noisygt,
         train_steps=args.train_steps, n_seeds=args.seeds,
-        use_vmap=args.use_vmap, verbose=True)
-    noisy_loss_data_estimator.compute_curve(n_points=10)
+        use_vmap=args.use_vmap, cache_data=args.cache_data,
+        verbose=True)
+    noisy_results = noisy_loss_data_estimator.compute_curve(
+        n_points=args.points)
 
-    raw_results = raw_loss_data_estimator.to_dataframe()
     raw_results['name'] = 'Raw'
-    # vae_results = vae_loss_data_estimator.to_dataframe()
     # vae_results['name'] = 'VAE'
-    noisy_results = noisy_loss_data_estimator.to_dataframe()
     noisy_results['name'] = 'Noisy labels'
 
     outcome_df = pd.concat([
@@ -54,17 +55,20 @@ def main(args):
         noisy_results,
     ])
 
+    os.makedirs('results', exist_ok=True)
     save_path = ('results/'
                  f'{args.name}_vmap{args.use_vmap}'
                  f'_train{args.train_steps}'
-                 f'_seed{args.seeds}.png')
-    apiv2.render_curve(outcome_df, save_path=save_path)
+                 f'_seed{args.seeds}'
+                 f'_point{args.points}.png')
 
-    ns = [100, 1000, 10000]
+    ns = [1000, 60000]
     epsilons = [1, 0.1, 0.01]
+    apiv2.render_curve(outcome_df, ns, epsilons, save_path=save_path)
     metrics_df = apiv2.compute_metrics(outcome_df, ns, epsilons)
+    # metrics_df = apiv2.compute_metrics(outcome_df)
     print(metrics_df)
-    apiv2.render_latex(metrics_df, display=True)
+    # apiv2.render_latex(metrics_df, display=True)
     # return outcome_df
 
 
@@ -74,13 +78,16 @@ if __name__ == '__main__':
     parser.add_argument('--name', type=str, default='default')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--no_vmap', dest='use_vmap', action='store_false')
+    parser.add_argument('--no_cache', dest='cache_data', action='store_false')
     parser.add_argument('--train_steps', type=float, default=4e3)
     parser.add_argument('--seeds', type=int, default=5)
+    parser.add_argument('--points', type=int, default=10)
     args = parser.parse_args()
 
     import time
     start = time.time()
     if args.debug:
+        import jax
         with jax.disable_jit():
             main(args)
     else:

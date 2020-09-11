@@ -75,8 +75,10 @@ def auc_per_data(df, epsilons):
         df = pd.concat(results)
         df[f'str_{colname}'] = df[colname].round(2).astype(str)
         if epsilon > 0:
-            bound_strs = df.loc[df['val_loss'] > epsilon, f'str_{colname}']
-            bound_strs = "> " + bound_strs
+            rows, cols = df['val_loss'] > epsilon, f'str_{colname}'
+            df.loc[rows, cols] = "> " + df.loc[rows, cols]
+            # bound_strs = df.loc[df['val_loss'] > epsilon, f'str_{colname}']
+            # bound_strs = "> " + bound_strs
     return df
 
 

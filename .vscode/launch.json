@@ -12,6 +12,7 @@
             "program": "main_demo_v2.py",
             "console": "internalConsole",
             "args": [
+                "--train_steps", "1e2",
             ],
             "env": {
                 "CUDA_VISIBLE_DEVICES": "3",
