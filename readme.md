@@ -9,8 +9,8 @@ This repo contains a library called `reprieve` (for **repr**esentation **ev**alu
 - Validation loss
 - Mutual information (approximate; a bound only)
 - Minimum description length, from [Information-Theoretic Probing with Minimum Description Length](https://arxiv.org/abs/2003.12298)
-- Surplus description length (our paper)
-- ε-sample complexity (our paper)
+- Surplus description length ([our paper](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors.pdf))
+- ε-sample complexity ([our paper](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors.pdf))
 
 We encourage anyone working on representation learning to bring their representations and datasets and use this library for evaluation and benchmarking. Don't settle for evaluating with linear probes or few-shot fine-tuning!
 
