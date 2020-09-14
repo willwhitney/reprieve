@@ -1,6 +1,6 @@
 # Reprieve: a library for evaluating representations
 
-Everybody wants to learn good representations of data. However, defining precisely what we mean by a good representation can be tricky. In a recent paper, [Evaluating representations by the complexity of learning low-loss predictors](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors), we show that many notions of the quality of a representation for a task can be expressed as a function of the _loss-data curve_.
+Everybody wants to learn good representations of data. However, defining precisely what we mean by a good representation can be tricky. In a recent paper, [Evaluating representations by the complexity of learning low-loss predictors](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors.pdf), we show that many notions of the quality of a representation for a task can be expressed as a function of the _loss-data curve_.
 
 ![Figure 1, showing the loss-data curve.](assets/fig1.png)
 
@@ -14,7 +14,7 @@ This repo contains a library called `reprieve` (for **repr**esentation **ev**alu
 
 We encourage anyone working on representation learning to bring their representations and datasets and use this library for evaluation and benchmarking. Don't settle for evaluating with linear probes or few-shot fine-tuning!
 
-If you run into any problems, please file an issue! I'm happy to help get things working and learn how to make Reprieve better.
+If you run into any problems, please file an issue! I'm happy to help get things working and learn how to make Reprieve better. Furthermore, if you're working in the field and find that we don't have a standard algorithm or representation that would be useful for others, send a pull request!
 
 
 ## Features
