@@ -9,7 +9,7 @@ from torchvision.utils import save_image
 
 from . import common
 
-DEVICE = "cuda"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 128
 EPOCHS = 50
 FLAG = "[MNIST_VAE]"

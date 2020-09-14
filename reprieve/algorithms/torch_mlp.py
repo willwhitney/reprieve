@@ -4,7 +4,7 @@ from torch import nn, optim
 import torch.nn.functional as F
 
 
-DEVICE = "cuda"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class MLPClassifier(nn.Module):
