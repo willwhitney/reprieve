@@ -6,12 +6,9 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-# TODO: remove this
-import jax.profiler
-
-import utils
-import dataset_utils
-import metrics
+from . import utils
+from . import dataset_wrappers
+from . import metrics
 
 
 class LossDataEstimator:
@@ -97,13 +94,14 @@ class LossDataEstimator:
         # Step 1: split into train and val
         self.val_size = math.ceil(len(self.dataset) * self.val_frac)
         self.max_train_size = len(self.dataset) - self.val_size
-        self.train_set = dataset_utils.DatasetSubset(
+        self.train_set = dataset_wrappers.DatasetSubset(
             self.dataset, stop=self.max_train_size)
-        self.val_set = dataset_utils.DatasetSubset(
+        self.val_set = dataset_wrappers.DatasetSubset(
             self.dataset, start=self.max_train_size)
 
         # Step 2: figure out when / if we're caching the data
         if use_vmap:
+            self.print("Transforming and caching dataset.")
             # transform the whole training and put it in JAX
             self.train_set = utils.dataset_to_jax(
                 self.train_set,
@@ -116,12 +114,13 @@ class LossDataEstimator:
             # we've already used representation_fn to transform the data
             self.batch_transforms = []
         elif cache_data:
+            self.print("Transforming and caching dataset.")
             # transform the data and cache it as a Pytorch dataset
-            self.train_set = dataset_utils.DatasetTransformCache(
+            self.train_set = dataset_wrappers.DatasetTransformCache(
                 self.train_set,
                 batch_transforms=[self.representation_fn],
                 batch_size=self.batch_size)
-            self.val_set = dataset_utils.DatasetTransformCache(
+            self.val_set = dataset_wrappers.DatasetTransformCache(
                 self.val_set,
                 batch_transforms=[self.representation_fn],
                 batch_size=self.batch_size)
@@ -146,7 +145,6 @@ class LossDataEstimator:
             columns=["seed", "samples", "val_loss"])
         self.results['samples'] = self.results['samples'].astype(int)
 
-    @jax.profiler.trace_function
     def compute_curve(self, n_points=10, sampling_type='log', points=None):
         """Computes the loss-data curve for the given algorithm and dataset.
         Arguments:
@@ -170,7 +168,7 @@ class LossDataEstimator:
             else:
                 raise ValueError((f"Argument sampling_type should be "
                                   f"'log' or 'linear', was {sampling_type}."))
-            points = np.ceil(points)
+        points = np.ceil(points)
 
         if self.use_vmap:
             return self._compute_curve_full_vmap(points)
@@ -186,14 +184,25 @@ class LossDataEstimator:
         - epsilon: (num) the tolerance specifying the maximum acceptable loss
             from running algorithm on dataset.
         - precision: (num) how tightly to bound eSC, in terms of
-            upper_bound - lower_bound
+            number of training points required to reach loss `epsilon`. that
+            is, the desired `upper_bound - lower_bound`
         - parallelism: (int) the number of experiments to run in each round of
             grid search.
         Returns: an upper bound on the epsilon sample complexity
+        Effects: runs compute_curve multiple times and adds points to the
+            loss-data curve
         """
+        if len(self.results) == 0:
+            self.compute_curve(n_points=parallelism)
         lower_bound, upper_bound = self._bound_esc(epsilon)
+        if upper_bound is None:
+            if self.results['samples'].max() < self.max_train_size:
+                self.compute_curve(n_points=parallelism)
+            lower_bound, upper_bound = self._bound_esc(epsilon)
+        if upper_bound is None:
+            return None
         while upper_bound - lower_bound > precision:
-            points = np.linspace(lower_bound, upper_bound, parallelism)[1:-1]
+            points = np.linspace(lower_bound, upper_bound, parallelism+2)[1:-1]
             self.compute_curve(points=points)
             lower_bound, upper_bound = self._bound_esc(epsilon)
         return upper_bound
@@ -204,13 +213,12 @@ class LossDataEstimator:
 
     # Private methods
 
-    @jax.profiler.trace_function
     def _compute_curve_sequential(self, points):
         for point in points:
             for seed in range(self.n_seeds):
-                shuffled_data = dataset_utils.DatasetShuffle(self.train_set)
-                data_subset = dataset_utils.DatasetSubset(shuffled_data,
-                                                          stop=int(point))
+                shuffled_data = dataset_wrappers.DatasetShuffle(self.train_set)
+                data_subset = dataset_wrappers.DatasetSubset(shuffled_data,
+                                                             stop=int(point))
                 state = self._train(seed, data_subset)
                 val_loss = self._eval(state, self.val_set)
                 self.results = self.results.append({
@@ -222,7 +230,6 @@ class LossDataEstimator:
                 self.print(self.results)
         return self.to_dataframe()
 
-    @jax.profiler.trace_function
     def _compute_curve_full_vmap(self, points):
         seeds = list(range(self.n_seeds))
         jobs = [(point, seed) for point in points for seed in seeds]
@@ -244,7 +251,6 @@ class LossDataEstimator:
         self.print(self.results)
         return self.to_dataframe()
 
-    @jax.profiler.trace_function
     def _train_full_vmap(self, multi_iterator, seeds):
         import jax
         import jax.numpy as jnp
@@ -261,7 +267,6 @@ class LossDataEstimator:
     def _make_loader(self, dataset, shuffle):
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
 
-    @jax.profiler.trace_function
     def _train(self, seed, dataset):
         """Performs training with the algorithm associated with this LDE.
         Runs `self.train_steps` batches' worth of updates to the model and
@@ -282,7 +287,6 @@ class LossDataEstimator:
                     break
         return state
 
-    @jax.profiler.trace_function
     def _eval(self, state, dataset):
         """Evaluates the model specified by state on dataset.
         Computes the average loss by summing the total loss over all datapoints
@@ -300,7 +304,6 @@ class LossDataEstimator:
             examples += batch_examples
         return loss / examples
 
-    @jax.profiler.trace_function
     def _eval_vmap(self, states, dataset):
         """Evaluates
         """
@@ -334,13 +337,14 @@ class LossDataEstimator:
         where loss is greater than epsilon.
         """
         r = self.results
+        r = r.groupby(["samples"]).mean().reset_index()
         upper_bound = r[r['val_loss'] <= epsilon]['samples'].min()
         lower_bound = r[r['val_loss'] > epsilon]['samples'].max()
         if np.isnan(upper_bound):
             upper_bound = None
             lower_bound = r['samples'].max()
         elif np.isnan(lower_bound):
-            lower_bound = None
+            lower_bound = 0
             upper_bound = r['samples'].min()
         return (lower_bound, upper_bound)
 
@@ -446,6 +450,10 @@ def compute_metrics(df, ns=None, epsilons=[1.0, 0.1, 0.01]):
     - epsilons: (list<num>) the settings of epsilon used for computing SDL and
         eSC.
     """
+    if "name" not in df:
+        print("Dataframe has no 'name' field. Using 'default'.")
+        df['name'] = 'default'
+    df = df.groupby(['name', 'samples']).mean().reset_index()
     if ns is None:
         closest_ns = [max(df.samples)]
     else:

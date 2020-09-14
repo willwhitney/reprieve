@@ -3,9 +3,7 @@ from torch.utils.data import Dataset
 
 import numpy as np
 
-import utils
-
-# TODO: rename this file to dataset_wrappers
+from . import utils
 
 
 class DatasetWrapper(Dataset):

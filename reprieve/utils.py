@@ -1,16 +1,10 @@
-import numpy as np
 import torch
-import random
-
-import jax.profiler
 
 
-@jax.profiler.trace_function
 def batch_to_numpy(batch):
     return (batch[0].numpy(), batch[1].numpy())
 
 
-@jax.profiler.trace_function
 def make_cpu_tensor(shape, dtype=float):
     import jax
     from jax import numpy as jnp
@@ -20,7 +14,6 @@ def make_cpu_tensor(shape, dtype=float):
     return big_cpu
 
 
-@jax.profiler.trace_function
 def torch_to_jax(tensor):
     """Zero-copy transfer of a torch CPU tensor to a JAX CPU ndarray."""
     import jax
@@ -58,7 +51,6 @@ def transform_stack_data(loader, batch_transforms, dataset_len):
     return xs, ys
 
 
-@jax.profiler.trace_function
 def dataset_to_jax(dataset, batch_transforms, batch_size=256):
     """Transforms a dataset one batch at a time and returns a JAX tensor.
 
@@ -74,7 +66,6 @@ def dataset_to_jax(dataset, batch_transforms, batch_size=256):
     return data_x, data_y
 
 
-@jax.profiler.trace_function
 def jax_multi_iterator(dataset, batch_size, seeds, subset_sizes):
     import jax
     from jax import numpy as jnp, random as jr
@@ -83,7 +74,6 @@ def jax_multi_iterator(dataset, batch_size, seeds, subset_sizes):
     data_x, data_y = dataset
     dataset_size = len(data_x)
 
-    @jax.profiler.trace_function
     @jax.jit
     def get_example(subset_size, seed, i):
         # generate a new dataset seed to prevent overlap of consecutive seeds
@@ -115,14 +105,12 @@ def jax_multi_iterator(dataset, batch_size, seeds, subset_sizes):
     return loader_iter
 
 
-@jax.profiler.trace_function
 def apply_transforms(batch_transforms, x):
     for t in batch_transforms:
         x = t(x)
     return x
 
 
-@jax.profiler.trace_function
 def compute_stats(dataset, batch_transforms, batch_size):
     """Compute mean and std of the dataset Xs.
 
@@ -195,9 +183,9 @@ if __name__ == "__main__":
     #     print("running with jit")
     #     test_iteration()
 
-    import dataset_utils
-    dataset = dataset_utils.DatasetCache(dataset)
-    white_dataset = dataset_utils.DatasetWhiten(dataset)
+    import dataset_wrappers
+    dataset = dataset_wrappers.DatasetCache(dataset)
+    white_dataset = dataset_wrappers.DatasetWhiten(dataset)
     print(white_dataset.mean, white_dataset.std)
 
     mean, std = compute_stats(dataset, [], 256)

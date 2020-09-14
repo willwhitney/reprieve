@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 import numpy as np
 import numpy.random as npr
 
-from dataset_utils import DatasetCache
+from . dataset_wrappers import DatasetCache
 
 FLAG = "[MNIST_NOISYGT]"
 

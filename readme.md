@@ -1,10 +1,10 @@
 # Reprieve: a library for evaluating representations
 
-Everybody wants to learn good representations of data. However, defining precisely what we mean by a good representation can be tricky. In a recent paper, we show that many notions of the quality of a representation for a task can be expressed as a function of the _loss-data curve_.
+Everybody wants to learn good representations of data. However, defining precisely what we mean by a good representation can be tricky. In a recent paper, [Evaluating representations by the complexity of learning low-loss predictors](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors), we show that many notions of the quality of a representation for a task can be expressed as a function of the _loss-data curve_.
 
 ![Figure 1, showing the loss-data curve.](assets/fig1.png)
 
-This repo contains a library for computing loss-data curves and the metrics of representation quality that can be derived from them. These metrics are:
+This repo contains a library called `reprieve` (for **repr**esentation **ev**aluation) for computing loss-data curves and the metrics of representation quality that can be derived from them. These metrics are:
 
 - Validation loss
 - Mutual information (approximate; a bound only)
@@ -14,6 +14,7 @@ This repo contains a library for computing loss-data curves and the metrics of r
 
 We encourage anyone working on representation learning to bring their representations and datasets and use this library for evaluation and benchmarking. Don't settle for evaluating with linear probes or few-shot fine-tuning!
 
+If you run into any problems, please file an issue! I'm happy to help get things working and learn how to make Reprieve better.
 
 ## Features
 
@@ -30,10 +31,12 @@ This library is designed to be framework-agnostic and _extremely_ efficient. Los
 For more examples, see the examples folder. In particular [examples/main.py](examples/main.py) is a complete example using fast parallel training and a JAX algorithm, and [examples/main_torch.py](examples/main_torch.py) is the same example using a Pytorch algorithm and no dependence on JAX.
 
 ```python
+import torchvision
 import reprieve
 
 # import a probing algorithm
 from reprieve.algorithms import mlp as alg
+from reprieve.representations import mnist_vae
 
 
 # make a standard MNIST dataset
@@ -44,9 +47,9 @@ dataset_mnist = torchvision.datasets.MNIST(
         torchvision.transforms.Normalize((0.1307,), (0.3081,))]))
 
 # train a VAE on MNIST with an 8D latent space
-vae_repr = representations.mnist_vae.build_repr(8)
+vae_repr = mnist_vae.build_repr(8)
 
-# make an MLP classifier algorithm with 8D inputs and 10 classes
+# make an MLP classifier algorithm with inputs of shape (8,) and 10 classes
 # algorithms are represented by an initializer, a training step, and an eval step
 init_fn, train_step_fn, eval_fn = alg.make_algorithm((8,), 10)
 
@@ -56,7 +59,7 @@ vae_loss_data_estimator = reprieve.LossDataEstimator(
         representation_fn=vae_repr)
 
 # compute the loss-data curve
-loss_data_df = vae_loss_data_estimator.compute_curve(n_points=args.points)
+loss_data_df = vae_loss_data_estimator.compute_curve(n_points=10)
 
 # compute all the metrics and render the loss-data curve and a LaTeX table of results
 metrics_df = reprieve.compute_metrics(
@@ -87,7 +90,7 @@ reprieve.render_latex(metrics_df, save_path='results.tex')
 ## Custom representations
 
 ### As functions
-In reprieve, representations are structured as functions which transform the observed data. With a dataset `(data_x, data_y)`, a representation will transform batches of `data_x`.
+In Reprieve, representations are structured as functions which transform the observed data. With a dataset `(data_x, data_y)`, a representation will transform batches of `data_x`.
 
 A representation is a function with the following signature:
 
@@ -103,23 +106,41 @@ Basically if you do
 ```python
 my_repr_module = MyReprModule()  # some Pytorch nn.Module
 my_repr_fn = reprieve.representations.common.numpy_wrap_torch(my_repr_module)
-lde = reprieve.LossDataEstimator(alg.init_fn, alg.train_fn, alg.eval_fn, dataset,
+lde = reprieve.LossDataEstimator(alg_init_fn, alg_train_fn, alg_eval_fn, dataset,
 representation_fn=my_repr_fn)
 ```
 you'll be all set.
+
+For an example demonstrating this method, see [`reprieve.representations.vae`](reprieve/representations/vae.py).
 
 ### As datasets
 If in your use case it is simpler to provide a dataset of already-transformed observations, whether as a Pytorch Dataset or as a tuple `(repr_x, data_y)`, you can do that too. For example, you could encode a whole dataset with a VAE, then pass that encoded data `repr_x` to `LossDataEstimator` instead of the original `data_x`.
 
 When doing this simply do not pass an argument for `representation_fn` to LossDataEstimator and it will be left as the identity.
 
+For an example demonstrating this method, see [`reprieve.mnist_noisy_label`](reprieve/mnist_noisy_label.py).
 
-### Custom algorithms
+
+## Algorithms
 
 In reprieve an algorithm is a set of three functions:
 1. An `init_fn` which takes a random seed and returns some state object.
 2. A `train_step_fn` which takes in the current state and a batch of data `(batch_x, batch_y)` and returns an updated state and the loss on that batch.
 3. An `eval_fn` which takes in the current state and a batch of data `(batch_x, batch_y)` and returns only the loss on that batch. Note that `eval_fn` must not mutate the state.
+
+
+### Built-in algorithms
+
+We include a simple MLP trained with Adam as the default algorithm in reprieve. To use this:
+
+1. `from reprieve.algorithms import mlp as alg` for the JAX version or `from reprieve.algorithms import torch_mlp as alg` for the Pytorch version
+2. `init_fn, train_step_fn, eval_fn = alg.make_algorithm(x_shape, n_classes)` where `x_shape` is the shape of a single input to the network and `n_classes` is the number of classes.
+3. Pass `init_fn`, `train_step_fn`, and `eval_fn` to LossDataEstimator. If using the JAX version, also pass `vmap=True` for fast performance. If using the Pytorch version you must set `vmap=False` or you will see weird errors.
+
+The code for each of these algorithms is very simple and is meant to be easy to modify to use a different network architecture or optimizer.
+
+
+### Custom algorithms
 
 Implementing your own algorithm (such as a convolutional probe network or a linear model trained with AdaDelta) is as simple as implementing those three functions. For an example, see the `make_algorithm` function of [reprieve.algorithms.mlp](reprieve/algorithms/mlp.py) (a JAX algorithm) or [reprieve.algorithms.torch_mlp](reprieve/algorithms/torch_mlp.py) (a Pytorch algorithm).
 
@@ -211,11 +232,13 @@ Arguments:
 - `epsilon`: (num) the tolerance specifying the maximum acceptable loss
         from running algorithm on dataset.
 - `precision`: (num) how tightly to bound eSC, in terms of
-        upper_bound - lower_bound
+        number of training points required to reach loss `epsilon`. that is, the
+        desired `upper_bound - lower_bound`
 - `parallelism`: (int) the number of experiments to run in each round of
         grid search.
 Returns: an upper bound on the epsilon sample complexity
-
+Effects: runs compute_curve multiple times and adds points to the
+        loss-data curve
 
 ```python
 method LossDataEstimator.to_dataframe(self)

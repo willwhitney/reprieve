@@ -3,7 +3,7 @@ from jax import numpy as jnp, random
 
 from flax import nn, optim
 
-from algorithms import common
+from . import common
 
 
 class MLPClassifier(nn.Module):

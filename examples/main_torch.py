@@ -5,7 +5,7 @@ import torchvision
 
 import reprieve
 from reprieve.representations import mnist_vae
-from mnist_noisy_label import MNISTNoisyLabelDataset
+from reprieve.mnist_noisy_label import MNISTNoisyLabelDataset
 from reprieve.algorithms import torch_mlp as alg
 
 
