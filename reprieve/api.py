@@ -364,6 +364,7 @@ def render_curve(df, ns=[], epsilons=[], save_path=None):
     """
     import altair as alt
     import altair_saver
+    from . import altair_theme  # noqa: F401
     alt.data_transformers.disable_max_rows()
 
     if len(ns) > 0:
@@ -371,31 +372,22 @@ def render_curve(df, ns=[], epsilons=[], save_path=None):
 
     title = 'Loss-data curve'
     color_title = 'Representation'
-    line_width = 5
-    label_size = 24
-    title_size = 30
-
     xscale = alt.Scale(type='log')
     yscale = alt.Scale(type='log')
 
     x_axis = alt.X('samples', scale=xscale, title='Dataset size')
     y_axis = alt.Y('mean(val_loss)', scale=yscale, title='Validation loss')
 
-    colorscheme = 'set1'
-    stroke_color = '333'
-    line = alt.Chart(df, title=title).mark_line(size=line_width, opacity=0.4)
+    line = alt.Chart(df, title=title).mark_line()
     line = line.encode(
         x=x_axis, y=y_axis,
-        color=alt.Color('name:N', title=color_title,
-                        scale=alt.Scale(scheme=colorscheme,),
-                        legend=None),
+        color=alt.Color('name:N', title=color_title, legend=None),
     )
 
     point = alt.Chart(df, title=title).mark_point(size=80, opacity=1)
     point = point.encode(
         x=x_axis, y=y_axis,
-        color=alt.Color('name:N', title=color_title,
-                        scale=alt.Scale(scheme=colorscheme,)),
+        color=alt.Color('name:N', title=color_title,),
         shape=alt.Shape('name:N', title=color_title),
         tooltip=['samples', 'name']
     )
@@ -405,32 +397,12 @@ def render_curve(df, ns=[], epsilons=[], save_path=None):
         pd.DataFrame({'y': epsilons})
     ], sort=False)
 
-    rule_x = alt.Chart(rules_df).mark_rule(
-        size=3, color='999', strokeDash=[4, 4]).encode(x='x')
-    rule_y = alt.Chart(rules_df).mark_rule(
-        size=3, color='999', strokeDash=[4, 4]).encode(y='y')
+    rule_x = alt.Chart(rules_df).mark_rule(strokeDash=[4, 4]).encode(x='x')
+    rule_y = alt.Chart(rules_df).mark_rule(strokeDash=[4, 4]).encode(y='y')
 
     chart = alt.layer(rule_x, rule_y, line, point).resolve_scale(
         color='independent',
         shape='independent'
-    )
-    chart = chart.properties(width=600, height=500, background='white')
-    chart = chart.configure_legend(labelLimit=0)
-    chart = chart.configure(
-        title=alt.TitleConfig(fontSize=title_size, fontWeight='normal'),
-        axis=alt.AxisConfig(titleFontSize=title_size,
-                            labelFontSize=label_size, grid=False,
-                            domainWidth=5, domainColor=stroke_color,
-                            tickWidth=3, tickSize=9, tickCount=4,
-                            tickColor=stroke_color, tickOffset=0),
-        legend=alt.LegendConfig(titleFontSize=title_size,
-                                labelFontSize=label_size,
-                                labelLimit=0, titleLimit=0,
-                                orient='top-right', padding=10,
-                                titlePadding=10, rowPadding=5,
-                                fillColor='white', strokeColor='black',
-                                cornerRadius=0),
-        view=alt.ViewConfig(strokeWidth=0, stroke=stroke_color)
     )
     if save_path is not None:
         altair_saver.save(chart, save_path)

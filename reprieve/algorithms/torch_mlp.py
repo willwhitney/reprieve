@@ -32,7 +32,7 @@ def make_algorithm(input_shape, n_classes):
         model = MLPClassifier(hidden_layers=2, hidden_dim=512,
                               input_dim=input_dim, n_classes=n_classes)
         model = model.to(DEVICE)
-        optimizer = optim.Adam(model.parameters(), lr=1e-3)
+        optimizer = optim.Adam(model.parameters(), lr=1e-4)
         state = (model, optimizer)
         return state
 

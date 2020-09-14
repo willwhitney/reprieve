@@ -25,7 +25,7 @@ def make_algorithm(input_shape, n_classes):
                                            n_classes=n_classes)
         _, initial_params = classifier.init_by_shape(rng, [(128, *input_shape)])
         initial_model = nn.Model(classifier, initial_params)
-        optimizer = optim.Adam(1e-3).create(initial_model)
+        optimizer = optim.Adam(1e-4).create(initial_model)
         return optimizer
 
     @jax.jit

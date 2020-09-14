@@ -57,13 +57,13 @@ def main(args):
 
     os.makedirs('results', exist_ok=True)
     save_path = ('results/'
-                 f'{args.name}_vmap{args.use_vmap}'
+                 f'{args.name}'
                  f'_train{args.train_steps}'
                  f'_seed{args.seeds}'
                  f'_point{args.points}')
 
-    ns = [1000, 60000]
-    epsilons = [1, 0.1, 0.01]
+    ns = [60, 20000]
+    epsilons = [1, 0.2]
     reprieve.render_curve(outcome_df, ns, epsilons,
                           save_path=save_path + '.pdf')
     metrics_df = reprieve.compute_metrics(outcome_df, ns, epsilons)
@@ -74,7 +74,7 @@ def main(args):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--name', type=str, default='default')
+    parser.add_argument('--name', type=str, default='jax')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--no_vmap', dest='use_vmap', action='store_false')
     parser.add_argument('--no_cache', dest='cache_data', action='store_false')

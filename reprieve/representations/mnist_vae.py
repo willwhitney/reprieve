@@ -11,7 +11,7 @@ from . import common
 
 DEVICE = "cuda"
 BATCH_SIZE = 128
-EPOCHS = 10
+EPOCHS = 50
 FLAG = "[MNIST_VAE]"
 
 old_print = print

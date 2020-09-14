@@ -61,8 +61,8 @@ def main(args):
                  f'_seed{args.seeds}'
                  f'_point{args.points}')
 
-    ns = [1000, 60000]
-    epsilons = [1, 0.1, 0.01]
+    ns = [60, 20000]
+    epsilons = [1, 0.2]
     reprieve.render_curve(outcome_df, ns, epsilons,
                           save_path=save_path + '.pdf')
     metrics_df = reprieve.compute_metrics(outcome_df, ns, epsilons)
@@ -73,7 +73,7 @@ def main(args):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--name', type=str, default='default')
+    parser.add_argument('--name', type=str, default='torch')
     parser.add_argument('--no_cache', dest='cache_data', action='store_false')
     parser.add_argument('--train_steps', type=float, default=4e3)
     parser.add_argument('--seeds', type=int, default=5)
