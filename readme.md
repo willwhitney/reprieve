@@ -82,10 +82,10 @@ reprieve.render_latex(metrics_df, save_path='results.tex')
 ### Dependencies
 
 - [Pytorch](https://pytorch.org/get-started/locally/)
-- For parallel training: [JAX](https://github.com/google/jax#installation) and [Flax](https://github.com/google/flax#installation). _Strongly_ recommended.
-- For generating and saving charts: [Altair](https://altair-viz.github.io/getting_started/installation.html) and [altair_saver](https://github.com/altair-viz/altair_saver/)
-        - `pip install altair altair_saver`
 - The standard Python data kit, including numpy and pandas.
+- Optional:
+    - For parallel training: [JAX](https://github.com/google/jax#installation) and [Flax](https://github.com/google/flax#installation). _Strongly_ recommended.
+    - For generating and saving charts: [Altair](https://altair-viz.github.io/getting_started/installation.html) and [altair_saver](https://github.com/altair-viz/altair_saver/) — `pip install altair altair_saver`
 
 
 ## Custom representations
