@@ -1,6 +1,6 @@
 # Reprieve: a library for evaluating representations
 
-Everybody wants to learn good representations of data. However, defining precisely what we mean by a good representation can be tricky. In a recent paper, [Evaluating representations by the complexity of learning low-loss predictors](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors.pdf), we show that many notions of the quality of a representation for a task can be expressed as a function of the _loss-data curve_.
+Everybody wants to learn good representations of data. However, defining precisely what we mean by a good representation can be tricky. In a recent paper, [Evaluating representations by the complexity of learning low-loss predictors](https://arxiv.org/abs/2009.07368), we show that many notions of the quality of a representation for a task can be expressed as a function of the _loss-data curve_.
 
 ![Figure 1, showing the loss-data curve.](assets/fig1.png)
 
@@ -9,8 +9,8 @@ This repo contains a library called `reprieve` (for **repr**esentation **ev**alu
 - Validation loss
 - Mutual information (approximate; a bound only)
 - Minimum description length, from [Information-Theoretic Probing with Minimum Description Length](https://arxiv.org/abs/2003.12298)
-- Surplus description length ([our paper](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors.pdf))
-- ε-sample complexity ([our paper](assets/Evaluating.representations.by.the.complexity.of.learning.low-loss.predictors.pdf))
+- Surplus description length ([our paper](https://arxiv.org/abs/2009.07368))
+- ε-sample complexity ([our paper](https://arxiv.org/abs/2009.07368))
 
 We encourage anyone working on representation learning to bring their representations and datasets and use this library for evaluation and benchmarking. Don't settle for evaluating with linear probes or few-shot fine-tuning!
 
@@ -85,7 +85,7 @@ reprieve.render_latex(metrics_df, save_path='results.tex')
 - The standard Python data kit, including numpy and pandas.
 - Optional:
     - For parallel training: [JAX](https://github.com/google/jax#installation) and [Flax](https://github.com/google/flax#installation). _Strongly_ recommended.
-    - For generating and saving charts: [Altair](https://altair-viz.github.io/getting_started/installation.html) and [altair_saver](https://github.com/altair-viz/altair_saver/) — `pip install altair altair_saver`
+    - For generating and saving charts: [Altair](https://altair-viz.github.io/getting_started/installation.html) and [altair_saver](https://github.com/altair-viz/altair_saver/) — `pip install altair altair_saver`. Note that `altair_saver` has some dependencies you need to manually install in order to produce PDFs.
 
 
 ## Custom representations
@@ -146,6 +146,23 @@ The code for each of these algorithms is very simple and is meant to be easy to 
 Implementing your own algorithm (such as a convolutional probe network or a linear model trained with AdaDelta) is as simple as implementing those three functions. For an example, see the `make_algorithm` function of [reprieve.algorithms.mlp](reprieve/algorithms/mlp.py) (a JAX algorithm) or [reprieve.algorithms.torch_mlp](reprieve/algorithms/torch_mlp.py) (a Pytorch algorithm).
 
 We recommend starting from [reprieve.algorithms.mlp](reprieve/algorithms/mlp.py) and modifying the architecture or optimizer if you are writing your own algorithm.
+
+
+## Citing
+
+If you use Reprieve in academic work, please cite our paper:
+
+```
+@misc{whitney2020evaluating,
+    title={Evaluating representations by the complexity of learning low-loss predictors},
+    author={William F. Whitney and Min Jae Song and David Brandfonbrener and Jaan Altosaar and Kyunghyun Cho},
+    year={2020},
+    eprint={2009.07368},
+    archivePrefix={arXiv},
+    primaryClass={cs.LG}
+}
+```
+
 
 
 ## Full API documentation
