@@ -19,7 +19,7 @@ If you run into any problems, please file an issue! I'm happy to help get things
 
 ## Features
 
-This library is designed to be framework-agnostic and _extremely_ efficient. Loss-data curves, and the associated measures like MDL and SDL, can be expensive to compute as they require training a probe algorithm dozens of times. This library reduces the time it takes to do this from 30 minutes to 2.
+This library is designed to be framework-agnostic and _extremely_ efficient. Loss-data curves, and the associated measures like MDL and SDL, can be expensive to compute as they require training a probe algorithm dozens of times. This library reduces the time it takes to do this from 30 minutes to 2 when using probe algorithms in JAX.
 
 - **Bring your own dataset, representation function, and probe algorithm.** We provide implementations of representation functions such as VAEs and supervised pretraining, and an MLP with Adam probe algorithm, but you can quickly and easily use your own.
 - **Framework-agnostic.** You can implement representation functions and algorithms in any framework you choose, be it Pytorch, JAX, NumPy, or TensorFlow. Anything that can convert to and from NumPy arrays is fair game.
@@ -216,7 +216,9 @@ Arguments:
         (np.linspace).
 - `points`: (list of ints) manually specify the exact points at which to
         estimate the loss.
+
 Returns: the current DataFrame containing the loss-data curve.
+
 Effects: This LossDataEstimator instance will record the results of the
         experiments which are run, including them in the results DataFrame
         and using them to compute representation quality measures.
@@ -237,7 +239,9 @@ Arguments:
         desired `upper_bound - lower_bound`
 - `parallelism`: (int) the number of experiments to run in each round of
         grid search.
+
 Returns: an upper bound on the epsilon sample complexity
+
 Effects: runs compute_curve multiple times and adds points to the
         loss-data curve
 
@@ -278,8 +282,14 @@ by LossDataEstimator.compute_curve or LossDataEstimator.to_dataframe.
 metrics.
 - `epsilons`: (list\<num\>) the settings of epsilon used for computing SDL and
 eSC.
-- `save_path`: (str) a path (ending in .pdf or .png) to save the chart
+- `save_path`: (str) optional: a path (ending in .pdf or .png) to save the
+chart. saving requires the
+[`altair-saver`](https://github.com/altair-viz/altair_saver/) package
+and its dependencies.
 
+Returns: an Altair chart. Note that this chart displays well in notebooks,
+so calling `render_curve(df)` without a save path will work well with
+Jupyter.
 
 ```python
 render_latex(metrics_df, display=False, save_path=None)

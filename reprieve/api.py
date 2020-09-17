@@ -360,7 +360,13 @@ def render_curve(df, ns=[], epsilons=[], save_path=None):
         metrics.
     - epsilons: (list<num>) the settings of epsilon used for computing SDL and
         eSC.
-    - save_path: (str) a path (ending in .pdf or .png) to save the chart
+    - save_path: (str) optional: a path (ending in .pdf or .png) to save the
+        chart. saving requires the
+        [`altair-saver`](https://github.com/altair-viz/altair_saver/) package
+        and its dependencies.
+    Returns: an Altair chart. Note that this chart displays well in notebooks,
+        so calling `render_curve(df)` without a save path will work well with
+        Jupyter.
     """
     import altair as alt
     import altair_saver
