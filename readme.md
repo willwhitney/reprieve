@@ -69,6 +69,8 @@ reprieve.render_curve(loss_data_df, save_path='results.pdf')
 reprieve.render_latex(metrics_df, save_path='results.tex')
 ```
 
+You can also get started by running an example notebook on Colab: https://colab.research.google.com/github/willwhitney/reprieve/blob/master/examples/example.ipynb
+
 
 ## Installation
 
