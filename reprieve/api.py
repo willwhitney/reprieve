@@ -15,7 +15,7 @@ class LossDataEstimator:
     def __init__(self, init_fn, train_step_fn, eval_fn, dataset,
                  representation_fn=lambda x: x,
                  val_frac=0.1, n_seeds=5,
-                 train_steps=5e3, batch_size=256,
+                 train_steps=4e3, batch_size=256,
                  cache_data=True, whiten=True,
                  use_vmap=True, verbose=False):
         """Create a LossDataEstimator.
@@ -369,9 +369,12 @@ def render_curve(df, ns=[], epsilons=[], save_path=None):
         Jupyter.
     """
     import altair as alt
-    import altair_saver
     from . import altair_theme  # noqa: F401
     alt.data_transformers.disable_max_rows()
+
+    if "name" not in df:
+        print("Dataframe has no 'name' field. Using 'default'.")
+        df['name'] = 'default'
 
     if len(ns) > 0:
         ns = _closest_valid_ns(df, ns)
@@ -411,6 +414,7 @@ def render_curve(df, ns=[], epsilons=[], save_path=None):
         shape='independent'
     )
     if save_path is not None:
+        import altair_saver
         altair_saver.save(chart, save_path)
     return chart
 
@@ -473,7 +477,6 @@ def render_latex(metrics_df, display=False, save_path=None):
         out = widgets.Output(layout={'border': '1px solid black'})
         out.append_stdout(latex_str)
         IPython.display.display(out)
-    return latex_str
 
 
 def _closest_valid_ns(df, ns):
