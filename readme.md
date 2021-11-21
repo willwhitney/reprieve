@@ -86,7 +86,7 @@ You can also get started by running an example notebook on Colab: https://colab.
 - [Pytorch](https://pytorch.org/get-started/locally/)
 - The standard Python data kit, including numpy and pandas.
 - Optional:
-    - For parallel training: [JAX](https://github.com/google/jax#installation) and [Flax](https://github.com/google/flax#installation). _Strongly_ recommended.
+    - For parallel training: [JAX](https://github.com/google/jax#installation) and [Flax](https://github.com/google/flax#installation). _Strongly_ recommended. Tested with `jax==0.1.75`, `jaxlib==0.1.52`, and `flax==0.1.0`. Everything here should work in principle with later versions, but will require some code changes to adapt to their moving APIs.
     - For generating and saving charts: [Altair](https://altair-viz.github.io/getting_started/installation.html) and [altair_saver](https://github.com/altair-viz/altair_saver/) — `pip install altair altair_saver`. Note that `altair_saver` has some dependencies you need to manually install in order to produce PDFs.
 
 
